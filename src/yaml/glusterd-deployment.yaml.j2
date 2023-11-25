@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glusterd-deployment-{{ id }}
+  namespace: {{ namespace }}
+  labels:
+    app: glusterd-{{ id }}
+spec:
+  selector:
+    matchLabels:
+      app: glusterd
+  template:
+    metadata:
+      labels:
+        app: glusterd
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: {{ node_name }}
+      containers:
+      - name: glusterd
+        image: ghcr.io/koskev/hostapd-image:2023.11.25
+        imagePullPolicy: "IfNotPresent"
+        volumeMounts:
+        - name: glusterd-config
+          mountPath: /etc/glusterd
+        resources:
+          requests:
+            memory: "256Mi"
+      volumes:
+      - name: glusterd-config
+        hostPath:
+          path: /etc/k8s-glusterd

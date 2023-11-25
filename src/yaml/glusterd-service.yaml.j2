@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: glusterd-service-{{ id }}
+  namespace: {{ namespace }}
+  labels:
+    app: glusterd-{{ id }}
+spec:
+  selector:
+    app: glusterd-{{ id }}
+  ports:
+    - name: brick
+      protocol: TCP
+      port: 24007
+      targetPort: 24007
+  type: ClusterIP
