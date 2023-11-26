@@ -10,9 +10,8 @@ use k8s_openapi::{
     api::{
         apps::v1::{Deployment, StatefulSet, StatefulSetSpec},
         core::v1::{
-            Container, HostPathVolumeSource, Node, Pod, PodSpec, PodTemplateSpec,
-            ResourceRequirements, SecurityContext, Service, ServicePort, ServiceSpec, Volume,
-            VolumeMount,
+            Container, HostPathVolumeSource, Pod, PodSpec, PodTemplateSpec, ResourceRequirements,
+            SecurityContext, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
         },
     },
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::LabelSelector},
@@ -22,11 +21,7 @@ use kube::{
         Api, AttachParams, DeleteParams, ListParams, Patch, PatchParams, PostParams, WatchParams,
     },
     core::{ObjectMeta, WatchEvent},
-    runtime::{
-        controller::Action,
-        wait::{await_condition, Condition},
-        watcher, Controller, WatchStreamExt,
-    },
+    runtime::{controller::Action, wait::Condition, watcher, Controller, WatchStreamExt},
     Client, ResourceExt,
 };
 
@@ -243,58 +238,67 @@ impl GlusterdOperator {
         // For every storage find one pod to probe and create brick
         for storage in self.storage.iter() {
             // Find node for current storage
-            let node_opt = self.nodes.iter().find(|node| {
-                storage
-                    .spec
-                    .nodes
-                    .iter()
-                    .map(|sn| sn.name.clone())
-                    .find(|name| node.name == *name)
-                    .is_some()
-            });
-            // TODO: error handling
-            let node = node_opt.unwrap();
-            let id = node.name.clone();
-            info!("id: {}", id);
-            let label_str = get_label(&id);
-            info!("Getting pod with label: {}", label_str);
-            let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-
-            // Execute peer probe for every node on the first pod
-            for node in &storage.spec.nodes {
-                let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
-                info!("Executing for with service {}", service_name);
-                let command = vec!["gluster", "peer", "probe", &service_name];
-                glusterd_exec(command, &pod_api, &label_str).await;
-            }
-            // Create brick
-            let bricks: Vec<String> = storage
-                .spec
+            let nodes: Vec<&GlusterdNode> = self
                 .nodes
                 .iter()
-                .map(|node| {
-                    let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
-                    info!("Executing for with service {}", service_name);
-                    format!("{}:{}", service_name, storage.get_brick_path())
+                .filter(|node| {
+                    storage
+                        .spec
+                        .nodes
+                        .iter()
+                        .map(|sn| sn.name.clone())
+                        .find(|name| node.name == *name)
+                        .is_some()
                 })
                 .collect();
+            // TODO: error handling
+            for node in nodes {
+                let id = node.name.clone();
+                info!("id: {}", id);
+                let label_str = get_label(&id);
+                info!("Getting pod with label: {}", label_str);
+                let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
 
-            let brick_len_str = bricks.len().to_string();
-            let volume_name = storage.get_name();
-            let mut command = vec![
-                "gluster",
-                "volume",
-                "create",
-                &volume_name,
-                "replica",
-                &brick_len_str,
-            ];
-            let mut brick_ref: Vec<&str> = bricks.iter().map(|brick| brick.as_str()).collect();
-            command.append(&mut brick_ref);
-            command.push("force");
-            glusterd_exec(command, &pod_api, &label_str).await;
-            let command = vec!["gluster", "volume", "start", &volume_name];
-            glusterd_exec(command, &pod_api, &label_str).await;
+                // Execute peer probe for every node on the first pod
+                for s_node in &storage.spec.nodes {
+                    let service_name =
+                        format!("glusterd-service-{}.{}", s_node.name, self.namespace);
+                    info!("Executing for with service {}", service_name);
+                    let command = vec!["gluster", "peer", "probe", &service_name];
+                    node.exec_pod(command, &pod_api).await;
+                    // TODO: if new node -> Mark for kill and wait for state == 3
+                }
+            }
+            // Now every node has probed every other node
+
+            // Create brick
+            //let bricks: Vec<String> = storage
+            //    .spec
+            //    .nodes
+            //    .iter()
+            //    .map(|node| {
+            //        let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
+            //        info!("Executing for with service {}", service_name);
+            //        format!("{}:{}", service_name, storage.get_brick_path())
+            //    })
+            //    .collect();
+
+            //let brick_len_str = bricks.len().to_string();
+            //let volume_name = storage.get_name();
+            //let mut command = vec![
+            //    "gluster",
+            //    "volume",
+            //    "create",
+            //    &volume_name,
+            //    "replica",
+            //    &brick_len_str,
+            //];
+            //let mut brick_ref: Vec<&str> = bricks.iter().map(|brick| brick.as_str()).collect();
+            //command.append(&mut brick_ref);
+            //command.push("force");
+            //glusterd_exec(command, &pod_api, &label_str).await;
+            //let command = vec!["gluster", "volume", "start", &volume_name];
+            //glusterd_exec(command, &pod_api, &label_str).await;
         }
     }
 }
@@ -393,14 +397,8 @@ impl GlusterdNode {
                         containers: vec![Container {
                             name: "glusterd".to_string(),
                             // TODO: allow external image and tag for renovate
-                            image: Some("ghcr.io/koskev/glusterfs-image:2023.11.25".to_string()),
-                            args: Some(vec![
-                                "-l".to_string(),
-                                "/dev/stdout".to_string(),
-                                "-L".to_string(),
-                                "DEBUG".to_string(),
-                                "-N".to_string(),
-                            ]),
+                            image: Some("ghcr.io/koskev/glusterfs-image:2023.11.26".to_string()),
+                            args: Some(vec!["-L".to_string(), "DEBUG".to_string()]),
 
                             volume_mounts: Some(volume_mounts),
                             resources: Some(ResourceRequirements {
@@ -423,6 +421,56 @@ impl GlusterdNode {
                 ..Default::default()
             }),
             ..Default::default()
+        }
+    }
+
+    async fn exec_pod(&self, command: Vec<&str>, pod_api: &Api<Pod>) {
+        let label = get_label(&self.name);
+        info!("Getting pod with label: {}", label);
+        let params = ListParams {
+            label_selector: Some(format!("app={}", label)),
+            ..Default::default()
+        };
+        let pod_list = pod_api.list(&params).await.unwrap();
+        // XXX: Assumes we only have one pod
+        let pod = pod_list.items.first().unwrap();
+
+        info!(
+            "Executing \"{:?}\" in {}",
+            command,
+            pod.metadata.name.clone().unwrap()
+        );
+
+        let res = pod_api
+            .exec(
+                &pod.metadata.name.clone().unwrap(),
+                command,
+                &AttachParams::default(),
+            )
+            .await;
+
+        match res {
+            Ok(mut p) => {
+                // TODO: blocks if no output
+                //let stdout = tokio_util::io::ReaderStream::new(p.stdout().unwrap())
+                //    .filter_map(|r| async {
+                //        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                //    })
+                //    .collect::<Vec<_>>()
+                //    .await
+                //    .join("");
+                //let stderr = tokio_util::io::ReaderStream::new(p.stderr().unwrap())
+                //    .filter_map(|r| async {
+                //        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                //    })
+                //    .collect::<Vec<_>>()
+                //    .await
+                //    .join("");
+                //info!("Stdout: {}", stdout);
+                //error!("Stderr: {}", stderr);
+                //let _ = p.join().await;
+            }
+            Err(e) => error!("Error executing command: {}", e),
         }
     }
 }
@@ -509,38 +557,6 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Actio
     operator.write().await.update().await;
 
     Ok(Action::requeue(Duration::from_secs(3600)))
-}
-
-async fn glusterd_exec(command: Vec<&str>, pod_api: &Api<Pod>, label: &str) {
-    info!("Getting pod with label: {}", label);
-    let params = ListParams {
-        label_selector: Some(format!("app={}", label)),
-        ..Default::default()
-    };
-    let pod_list = pod_api.list(&params).await.unwrap();
-    let pod = pod_list.items.first().unwrap();
-
-    info!(
-        "Executing \"{:?}\" in {}",
-        command,
-        pod.metadata.name.clone().unwrap()
-    );
-
-    let res = pod_api
-        .exec(
-            &pod.metadata.name.clone().unwrap(),
-            command,
-            &AttachParams::default(),
-        )
-        .await;
-
-    match res {
-        Ok(p) => {
-            let _ = p.join().await;
-            // TODO: write stdout and stderr
-        }
-        Err(e) => error!("Error executing command: {}", e),
-    }
 }
 
 fn error_policy(_object: Arc<GlusterdStorage>, _err: &MyError, _ctx: Arc<Context>) -> Action {
