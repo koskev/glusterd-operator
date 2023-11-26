@@ -123,7 +123,7 @@ fn get_statefulset(namespace: &str, id: &str, node_name: &str) -> StatefulSet {
                         ]),
 
                         volume_mounts: Some(vec![VolumeMount {
-                            mount_path: "/etc/glusterd".to_string(),
+                            mount_path: "/var/lib/glusterd".to_string(),
                             name: "glusterd-config".to_string(),
                             ..Default::default()
                         }]),
@@ -143,7 +143,7 @@ fn get_statefulset(namespace: &str, id: &str, node_name: &str) -> StatefulSet {
                     volumes: Some(vec![Volume {
                         name: "glusterd-config".to_string(),
                         host_path: Some(HostPathVolumeSource {
-                            path: "/etc/k8s-glusterd".to_string(),
+                            path: "/var/lib/k8s-glusterd".to_string(),
                             ..Default::default()
                         }),
                         ..Default::default()
