@@ -13,7 +13,7 @@ use k8s_openapi::{
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::LabelSelector},
 };
 use kube::{
-    api::{Api, AttachParams, DeleteParams, ListParams, PostParams},
+    api::{Api, AttachParams, DeleteParams, ListParams, Patch, PatchParams, PostParams},
     core::ObjectMeta,
     runtime::{
         controller::Action,
@@ -178,17 +178,35 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
 
         let dep = get_statefulset(&namespace, &id, &node.name);
 
-        //println!("Deploying {:#?}", dep);
-        let pp = PostParams::default();
         // TODO: just patch instead of deleting?
-        let _ = statefulset_api
-            .delete(
+        //let _ = statefulset_api
+        //    .delete(
+        //        &dep.metadata.name.clone().unwrap(),
+        //        &DeleteParams::default(),
+        //    )
+        //    .await;
+
+        let patch = Patch::Apply(dep);
+        let patch_result = statefulset_api
+            .patch(
                 &dep.metadata.name.clone().unwrap(),
-                &DeleteParams::default(),
+                &PatchParams::apply("glusterd-operator"),
+                &patch,
             )
             .await;
-        let d = statefulset_api.create(&pp, &dep).await.unwrap();
-        deployments.push(d);
+        match patch_result {
+            Ok(s) => {
+                deployments.push(s);
+            }
+            Err(e) => {
+                println!("Unable to patch: {}. Creating set...", e);
+                let d = statefulset_api
+                    .create(&PostParams::default(), &dep)
+                    .await
+                    .unwrap();
+                deployments.push(d);
+            }
+        }
 
         println!("Deployed {:?}", dep.metadata.name.unwrap());
         // Start service for each node
