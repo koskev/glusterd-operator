@@ -3,12 +3,12 @@ apiVersion: glusterd-operator.storage/v1
 kind: GlusterdStorage
 metadata:
   # This will be used as name of PV Hosting Volume
-  name: storage-pool-1
+  name: storage-pool-2
 spec:
-  name: gv0
+  name: gv1
   type: Dispersed
   nodes:
     - name: raspberrypi-server
-      path: "/tmp/test"
+      path: "/tmp/test2"
     - name: kevin-elite
-      path: "/tmp/test"
+      path: "/tmp/test2"
