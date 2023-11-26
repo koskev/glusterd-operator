@@ -53,17 +53,46 @@ enum GlusterdStorageTypeSpec {
 )]
 
 struct GlusterdStorageSpec {
-    name: String,
     r#type: GlusterdStorageTypeSpec,
     nodes: Vec<GlusterdStorageNodeSpec>,
 }
+
+fn create_volume(name: &str, mount_path: &str, host_path: &str) -> (Volume, VolumeMount) {
+    let volume_mount = VolumeMount {
+        mount_path: mount_path.to_string(),
+        name: name.to_string(),
+        ..Default::default()
+    };
+    let volume = Volume {
+        name: name.to_string(),
+        host_path: Some(HostPathVolumeSource {
+            path: host_path.to_string(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    (volume, volume_mount)
+}
+
+struct GlusterdNode {}
+
+impl GlusterdNode {}
 
 impl GlusterdStorage {
     fn get_namespace(&self) -> String {
         self.namespace().unwrap_or("default".to_string())
     }
+
+    fn get_name(&self) -> String {
+        format!(
+            "{}.{}",
+            self.metadata.name.clone().unwrap(),
+            self.get_namespace()
+        )
+    }
+
     fn get_id(&self, node_name: &str) -> String {
-        format!("{}-{}", self.metadata.name.clone().unwrap(), node_name)
+        format!("{}", node_name)
     }
     // This has to be a stateful set to ensure that the data is only ever written by one instance!
     fn get_statefulset(&self, node_name: &str) -> StatefulSet {
@@ -71,6 +100,14 @@ impl GlusterdStorage {
         let namespace = self.get_namespace();
         let label_str = get_label(&id);
         let label = BTreeMap::from([("app".to_string(), label_str)]);
+
+        let host_path = format!("/var/lib/k8s-glusterd-{}", namespace);
+        let (config_volume, config_volume_mount) =
+            create_volume("glusterd_config", "/var/lib/glusterd", &host_path);
+
+        let volumes = vec![config_volume];
+        let volume_mounts = vec![config_volume_mount];
+
         StatefulSet {
             metadata: ObjectMeta {
                 name: Some(format!("glusterd-{}", id)),
@@ -106,11 +143,7 @@ impl GlusterdStorage {
                                 "-N".to_string(),
                             ]),
 
-                            volume_mounts: Some(vec![VolumeMount {
-                                mount_path: "/var/lib/glusterd".to_string(),
-                                name: "glusterd-config".to_string(),
-                                ..Default::default()
-                            }]),
+                            volume_mounts: Some(volume_mounts),
                             resources: Some(ResourceRequirements {
                                 requests: Some(BTreeMap::from([(
                                     "memory".to_string(),
@@ -124,14 +157,7 @@ impl GlusterdStorage {
                             }),
                             ..Default::default()
                         }],
-                        volumes: Some(vec![Volume {
-                            name: "glusterd-config".to_string(),
-                            host_path: Some(HostPathVolumeSource {
-                                path: "/var/lib/k8s-glusterd".to_string(),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        }]),
+                        volumes: Some(volumes),
                         ..Default::default()
                     }),
                 },
@@ -291,11 +317,12 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
         .collect();
 
     let brick_len_str = bricks.len().to_string();
+    let volume_name = obj.get_name();
     let mut command = vec![
         "gluster",
         "volume",
         "create",
-        &obj.spec.name,
+        &volume_name,
         "replica",
         &brick_len_str,
     ];
@@ -303,7 +330,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     command.push("force");
     command.append(&mut brick_ref);
     glusterd_exec(command, &pod_api, &label_str).await;
-    let command = vec!["gluster", "volume", "start", &obj.spec.name];
+    let command = vec!["gluster", "volume", "start", &volume_name];
     glusterd_exec(command, &pod_api, &label_str).await;
 
     Ok(Action::requeue(Duration::from_secs(3600)))
