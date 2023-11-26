@@ -30,7 +30,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use simplelog::{ColorChoice, TermLogger, TerminalMode};
 
-use log::info;
+use log::{error, info};
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 struct GlusterdStorageNodeSpec {
@@ -41,7 +41,7 @@ struct GlusterdStorageNodeSpec {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 enum GlusterdStorageTypeSpec {
     Dispersed,
-    Replica3,
+    Replica,
 }
 
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -51,9 +51,95 @@ enum GlusterdStorageTypeSpec {
     kind = "GlusterdStorage",
     namespaced
 )]
+
 struct GlusterdStorageSpec {
+    name: String,
     r#type: GlusterdStorageTypeSpec,
     nodes: Vec<GlusterdStorageNodeSpec>,
+}
+
+impl GlusterdStorage {
+    fn get_namespace(&self) -> String {
+        self.namespace().unwrap_or("default".to_string())
+    }
+    fn get_id(&self, node_name: &str) -> String {
+        format!("{}-{}", self.metadata.name.clone().unwrap(), node_name)
+    }
+    // This has to be a stateful set to ensure that the data is only ever written by one instance!
+    fn get_statefulset(&self, node_name: &str) -> StatefulSet {
+        let id = self.get_id(node_name);
+        let namespace = self.get_namespace();
+        let label_str = get_label(&id);
+        let label = BTreeMap::from([("app".to_string(), label_str)]);
+        StatefulSet {
+            metadata: ObjectMeta {
+                name: Some(format!("glusterd-{}", id)),
+                namespace: Some(namespace.to_string()),
+                labels: Some(label.clone()),
+
+                ..Default::default()
+            },
+            spec: Some(StatefulSetSpec {
+                selector: LabelSelector {
+                    match_labels: Some(label.clone()),
+                    ..Default::default()
+                },
+                template: PodTemplateSpec {
+                    metadata: Some(ObjectMeta {
+                        labels: Some(label.clone()),
+                        ..Default::default()
+                    }),
+                    spec: Some(PodSpec {
+                        node_selector: Some(BTreeMap::from([(
+                            "kubernetes.io/hostname".to_string(),
+                            node_name.to_string(),
+                        )])),
+                        containers: vec![Container {
+                            name: "glusterd".to_string(),
+                            // TODO: allow external image and tag for renovate
+                            image: Some("ghcr.io/koskev/glusterfs-image:2023.11.25".to_string()),
+                            args: Some(vec![
+                                "-l".to_string(),
+                                "/dev/stdout".to_string(),
+                                "-L".to_string(),
+                                "DEBUG".to_string(),
+                                "-N".to_string(),
+                            ]),
+
+                            volume_mounts: Some(vec![VolumeMount {
+                                mount_path: "/var/lib/glusterd".to_string(),
+                                name: "glusterd-config".to_string(),
+                                ..Default::default()
+                            }]),
+                            resources: Some(ResourceRequirements {
+                                requests: Some(BTreeMap::from([(
+                                    "memory".to_string(),
+                                    Quantity("256Mi".to_string()),
+                                )])),
+                                ..Default::default()
+                            }),
+                            security_context: Some(SecurityContext {
+                                privileged: Some(true),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }],
+                        volumes: Some(vec![Volume {
+                            name: "glusterd-config".to_string(),
+                            host_path: Some(HostPathVolumeSource {
+                                path: "/var/lib/k8s-glusterd".to_string(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }]),
+                        ..Default::default()
+                    }),
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -76,86 +162,8 @@ fn handle_glusterdstorage_event(event: GlusterdStorage) {
     info!("New GlusterdStorage with spec {:?}", event.spec)
 }
 
-fn get_id(object: &GlusterdStorage, node_name: &str) -> String {
-    format!("{}-{}", object.metadata.name.clone().unwrap(), node_name)
-}
-
 fn get_label(id: &str) -> String {
     format!("glusterd-{}", id)
-}
-
-// This has to be a stateful set to ensure that the data is only ever written by one instance!
-fn get_statefulset(namespace: &str, id: &str, node_name: &str) -> StatefulSet {
-    let label_str = get_label(&id);
-    let label = BTreeMap::from([("app".to_string(), label_str)]);
-    StatefulSet {
-        metadata: ObjectMeta {
-            name: Some(format!("glusterd-{}", id)),
-            namespace: Some(namespace.to_string()),
-            labels: Some(label.clone()),
-
-            ..Default::default()
-        },
-        spec: Some(StatefulSetSpec {
-            selector: LabelSelector {
-                match_labels: Some(label.clone()),
-                ..Default::default()
-            },
-            template: PodTemplateSpec {
-                metadata: Some(ObjectMeta {
-                    labels: Some(label.clone()),
-                    ..Default::default()
-                }),
-                spec: Some(PodSpec {
-                    node_selector: Some(BTreeMap::from([(
-                        "kubernetes.io/hostname".to_string(),
-                        node_name.to_string(),
-                    )])),
-                    containers: vec![Container {
-                        name: "glusterd".to_string(),
-                        // TODO: allow external image and tag for renovate
-                        image: Some("ghcr.io/koskev/glusterfs-image:2023.11.25".to_string()),
-                        args: Some(vec![
-                            "-l".to_string(),
-                            "/dev/stdout".to_string(),
-                            "-L".to_string(),
-                            "DEBUG".to_string(),
-                            "-N".to_string(),
-                        ]),
-
-                        volume_mounts: Some(vec![VolumeMount {
-                            mount_path: "/var/lib/glusterd".to_string(),
-                            name: "glusterd-config".to_string(),
-                            ..Default::default()
-                        }]),
-                        resources: Some(ResourceRequirements {
-                            requests: Some(BTreeMap::from([(
-                                "memory".to_string(),
-                                Quantity("256Mi".to_string()),
-                            )])),
-                            ..Default::default()
-                        }),
-                        security_context: Some(SecurityContext {
-                            privileged: Some(true),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }],
-                    volumes: Some(vec![Volume {
-                        name: "glusterd-config".to_string(),
-                        host_path: Some(HostPathVolumeSource {
-                            path: "/var/lib/k8s-glusterd".to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }]),
-                    ..Default::default()
-                }),
-            },
-            ..Default::default()
-        }),
-        ..Default::default()
-    }
 }
 
 async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action> {
@@ -164,11 +172,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     let client = ctx.as_ref().clone();
     // Start deployments for each node
     // TODO: support changing nodes
-    let namespace = obj
-        .metadata
-        .namespace
-        .clone()
-        .unwrap_or("default".to_string());
+    let namespace = obj.get_namespace();
 
     let mut deployments = vec![];
     let mut services = vec![];
@@ -176,11 +180,11 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     let service_api = Api::<Service>::namespaced(client.clone(), &namespace);
 
     for node in &obj.spec.nodes {
-        let id = get_id(obj.as_ref(), &node.name);
+        let id = obj.get_id(&node.name);
         let label_str = get_label(&id);
         let label = BTreeMap::from([("app".to_string(), label_str)]);
 
-        let dep = get_statefulset(&namespace, &id, &node.name);
+        let dep = obj.get_statefulset(&node.name);
 
         // TODO: just patch instead of deleting?
         //let _ = statefulset_api
@@ -190,7 +194,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
         //    )
         //    .await;
 
-        let patch = Patch::Apply(dep);
+        let patch = Patch::Apply(dep.clone());
         let patch_result = statefulset_api
             .patch(
                 &dep.metadata.name.clone().unwrap(),
@@ -203,12 +207,9 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
                 deployments.push(s);
             }
             Err(e) => {
-                info!("Unable to patch: {}. Creating set...", e);
-                let d = statefulset_api
-                    .create(&PostParams::default(), &dep)
-                    .await
-                    .unwrap();
-                deployments.push(d);
+                info!("Unable to patch: {}", e);
+                // TODO: fix error handling
+                return Ok(Action::requeue(Duration::from_secs(3600)));
             }
         }
 
@@ -241,7 +242,10 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
             )
             .await;
         info!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
-        let s = service_api.create(&pp, &svc).await.unwrap();
+        let s = service_api
+            .create(&PostParams::default(), &svc)
+            .await
+            .unwrap();
         services.push(s);
     }
 
@@ -257,7 +261,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     // Get Pod with selector
 
     let node = obj.spec.nodes.first().unwrap();
-    let id = get_id(obj.as_ref(), &node.name);
+    let id = obj.get_id(&node.name);
     info!("id: {}", id);
     let label_str = get_label(&id);
     info!("Getting pod with label: {}", label_str);
@@ -265,7 +269,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
 
     // Execute peer probe for every node on the first pod
     for node in &obj.spec.nodes {
-        let id = get_id(obj.as_ref(), &node.name);
+        let id = obj.get_id(&node.name);
         let service_name = format!("glusterd-service-{}.{}", id, namespace);
         info!("Executing for with service {}", service_name);
         let command = vec!["gluster", "peer", "probe", &service_name];
@@ -273,6 +277,35 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     }
 
     // Create brick
+
+    let bricks: Vec<String> = obj
+        .spec
+        .nodes
+        .iter()
+        .map(|node| {
+            let id = obj.get_id(&node.name);
+            let service_name = format!("glusterd-service-{}.{}", id, namespace);
+            info!("Executing for with service {}", service_name);
+            format!("{}:{}", service_name, node.path)
+        })
+        .collect();
+
+    let brick_len_str = bricks.len().to_string();
+    let mut command = vec![
+        "gluster",
+        "volume",
+        "create",
+        &obj.spec.name,
+        "replica",
+        &brick_len_str,
+    ];
+    let mut brick_ref: Vec<&str> = bricks.iter().map(|brick| brick.as_str()).collect();
+    command.push("force");
+    command.append(&mut brick_ref);
+    glusterd_exec(command, &pod_api, &label_str).await;
+    let command = vec!["gluster", "volume", "start", &obj.spec.name];
+    glusterd_exec(command, &pod_api, &label_str).await;
+
     Ok(Action::requeue(Duration::from_secs(3600)))
 }
 
@@ -291,13 +324,21 @@ async fn glusterd_exec(command: Vec<&str>, pod_api: &Api<Pod>, label: &str) {
         pod.metadata.name.clone().unwrap()
     );
 
-    let _ = pod_api
+    let res = pod_api
         .exec(
             &pod.metadata.name.clone().unwrap(),
             command,
             &AttachParams::default(),
         )
         .await;
+
+    match res {
+        Ok(p) => {
+            let _ = p.join().await;
+            // TODO: write stdout and stderr
+        }
+        Err(e) => error!("Error executing command: {}", e),
+    }
 }
 
 fn error_policy(_object: Arc<GlusterdStorage>, _err: &MyError, _ctx: Arc<Client>) -> Action {
@@ -307,7 +348,7 @@ fn error_policy(_object: Arc<GlusterdStorage>, _err: &MyError, _ctx: Arc<Client>
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     TermLogger::init(
-        LevelFilter::Trace,
+        LevelFilter::Info,
         simplelog::Config::default(),
         TerminalMode::Stdout,
         ColorChoice::Auto,

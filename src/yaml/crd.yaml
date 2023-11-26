@@ -20,6 +20,8 @@ spec:
         properties:
           spec:
             properties:
+              name:
+                type: string
               nodes:
                 items:
                   properties:
@@ -35,9 +37,10 @@ spec:
               type:
                 enum:
                 - Dispersed
-                - Replica3
+                - Replica
                 type: string
             required:
+            - name
             - nodes
             - type
             type: object
