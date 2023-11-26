@@ -1,9 +1,9 @@
-use std::{collections::BTreeMap, error::Error, fs, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, error::Error, sync::Arc, time::Duration};
 
 use futures::{pin_mut, StreamExt, TryStreamExt};
 use k8s_openapi::{
     api::{
-        apps::v1::{Deployment, DeploymentSpec, StatefulSet, StatefulSetSpec},
+        apps::v1::{Deployment, StatefulSet, StatefulSetSpec},
         core::v1::{
             Container, HostPathVolumeSource, Node, Pod, PodSpec, PodTemplateSpec,
             ResourceRequirements, SecurityContext, Service, ServicePort, ServiceSpec, Volume,
@@ -11,14 +11,11 @@ use k8s_openapi::{
         },
     },
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::LabelSelector},
-    Metadata,
 };
 use kube::{
-    api::{Api, AttachParams, DeleteParams, ListParams, Patch, PatchParams, PostParams},
-    config::Context,
+    api::{Api, AttachParams, DeleteParams, ListParams, PostParams},
     core::ObjectMeta,
     runtime::{
-        conditions,
         controller::Action,
         wait::{await_condition, Condition},
         watcher, Controller, WatchStreamExt,
