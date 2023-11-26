@@ -25,8 +25,12 @@ use kube::{
 
 use kube::core::{CustomResourceExt, Resource};
 use kube_derive::CustomResource;
+use log::LevelFilter;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use simplelog::{ColorChoice, TermLogger, TerminalMode};
+
+use log::info;
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 struct GlusterdStorageNodeSpec {
@@ -69,7 +73,7 @@ fn is_statefulset_running() -> impl Condition<StatefulSet> {
 }
 
 fn handle_glusterdstorage_event(event: GlusterdStorage) {
-    println!("New GlusterdStorage with spec {:?}", event.spec)
+    info!("New GlusterdStorage with spec {:?}", event.spec)
 }
 
 fn get_id(object: &GlusterdStorage, node_name: &str) -> String {
@@ -155,7 +159,7 @@ fn get_statefulset(namespace: &str, id: &str, node_name: &str) -> StatefulSet {
 }
 
 async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action> {
-    println!("reconcile request: {}", obj.name_any());
+    info!("reconcile request: {}", obj.name_any());
     // TODO: check if file changed
     let client = ctx.as_ref().clone();
     // Start deployments for each node
@@ -199,7 +203,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
                 deployments.push(s);
             }
             Err(e) => {
-                println!("Unable to patch: {}. Creating set...", e);
+                info!("Unable to patch: {}. Creating set...", e);
                 let d = statefulset_api
                     .create(&PostParams::default(), &dep)
                     .await
@@ -208,7 +212,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
             }
         }
 
-        println!("Deployed {:?}", dep.metadata.name.unwrap());
+        info!("Deployed {:?}", dep.metadata.name.unwrap());
         // Start service for each node
         let svc = Service {
             metadata: ObjectMeta {
@@ -236,7 +240,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
                 &DeleteParams::default(),
             )
             .await;
-        println!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
+        info!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
         let s = service_api.create(&pp, &svc).await.unwrap();
         services.push(s);
     }
@@ -244,7 +248,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     // Wait for all to become ready
     for deployment in deployments.iter() {
         let name = deployment.metadata.name.clone().unwrap();
-        println!("Waiting for {}", name);
+        info!("Waiting for {}", name);
         await_condition(statefulset_api.clone(), &name, is_statefulset_running())
             .await
             .unwrap();
@@ -254,16 +258,16 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
 
     let node = obj.spec.nodes.first().unwrap();
     let id = get_id(obj.as_ref(), &node.name);
-    println!("id: {}", id);
+    info!("id: {}", id);
     let label_str = get_label(&id);
-    println!("Getting pod with label: {}", label_str);
+    info!("Getting pod with label: {}", label_str);
     let pod_api: Api<Pod> = Api::namespaced(client.clone(), &namespace);
 
     // Execute peer probe for every node on the first pod
     for node in &obj.spec.nodes {
         let id = get_id(obj.as_ref(), &node.name);
         let service_name = format!("glusterd-service-{}.{}", id, namespace);
-        println!("Executing for with service {}", service_name);
+        info!("Executing for with service {}", service_name);
         let command = vec!["gluster", "peer", "probe", &service_name];
         glusterd_exec(command, &pod_api, &label_str).await;
     }
@@ -273,7 +277,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
 }
 
 async fn glusterd_exec(command: Vec<&str>, pod_api: &Api<Pod>, label: &str) {
-    println!("Getting pod with label: {}", label);
+    info!("Getting pod with label: {}", label);
     let params = ListParams {
         label_selector: Some(format!("app={}", label)),
         ..Default::default()
@@ -281,7 +285,7 @@ async fn glusterd_exec(command: Vec<&str>, pod_api: &Api<Pod>, label: &str) {
     let pod_list = pod_api.list(&params).await.unwrap();
     let pod = pod_list.items.first().unwrap();
 
-    println!(
+    info!(
         "Executing \"{:?}\" in {}",
         command,
         pod.metadata.name.clone().unwrap()
@@ -302,8 +306,15 @@ fn error_policy(_object: Arc<GlusterdStorage>, _err: &MyError, _ctx: Arc<Client>
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("kind = {}", GlusterdStorage::kind(&())); // impl kube::Resource
-    println!(
+    TermLogger::init(
+        LevelFilter::Trace,
+        simplelog::Config::default(),
+        TerminalMode::Stdout,
+        ColorChoice::Auto,
+    )
+    .unwrap();
+    info!("kind = {}", GlusterdStorage::kind(&())); // impl kube::Resource
+    info!(
         "crd: {}",
         serde_yaml::to_string(&GlusterdStorage::crd()).unwrap()
     ); // crd yaml
