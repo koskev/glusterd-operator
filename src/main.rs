@@ -242,40 +242,43 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Client>) -> Result<Action
     println!("id: {}", id);
     let label_str = get_label(&id);
     println!("Getting pod with label: {}", label_str);
-    let params = ListParams {
-        label_selector: Some(format!("app={}", label_str)),
-        ..Default::default()
-    };
     let pod_api: Api<Pod> = Api::namespaced(client.clone(), &namespace);
-    let pod_list = pod_api.list(&params).await.unwrap();
-    let pod = pod_list.items.first().unwrap();
-
-    println!(
-        "Executing peer probe in {}",
-        pod.metadata.name.clone().unwrap()
-    );
 
     // Execute peer probe for every node on the first pod
     for node in &obj.spec.nodes {
         let id = get_id(obj.as_ref(), &node.name);
-        let service_name = format!("glusterd-service-{}", id);
+        let service_name = format!("glusterd-service-{}.{}", id, namespace);
         println!("Executing for with service {}", service_name);
-        let _ = pod_api
-            .exec(
-                &pod.metadata.name.clone().unwrap(),
-                vec![
-                    "gluster",
-                    "peer",
-                    "probe",
-                    &format!("{}.{}", service_name, namespace),
-                ],
-                &AttachParams::default(),
-            )
-            .await;
+        let command = vec!["gluster", "peer", "probe", &service_name];
+        glusterd_exec(command, &pod_api, &label_str).await;
     }
 
     // Create brick
     Ok(Action::requeue(Duration::from_secs(3600)))
+}
+
+async fn glusterd_exec(command: Vec<&str>, pod_api: &Api<Pod>, label: &str) {
+    println!("Getting pod with label: {}", label);
+    let params = ListParams {
+        label_selector: Some(format!("app={}", label)),
+        ..Default::default()
+    };
+    let pod_list = pod_api.list(&params).await.unwrap();
+    let pod = pod_list.items.first().unwrap();
+
+    println!(
+        "Executing \"{:?}\" in {}",
+        command,
+        pod.metadata.name.clone().unwrap()
+    );
+
+    let _ = pod_api
+        .exec(
+            &pod.metadata.name.clone().unwrap(),
+            command,
+            &AttachParams::default(),
+        )
+        .await;
 }
 
 fn error_policy(_object: Arc<GlusterdStorage>, _err: &MyError, _ctx: Arc<Client>) -> Action {
