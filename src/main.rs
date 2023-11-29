@@ -419,8 +419,13 @@ impl GlusterdNode {
         }
     }
 
-    async fn exec_pod(&self, command: Vec<&str>, pod_api: &Api<Pod>) {
+    async fn exec_pod(
+        &self,
+        command: Vec<&str>,
+        pod_api: &Api<Pod>,
+    ) -> (Option<String>, Option<String>) {
         let label = get_label(&self.name);
+        let mut retval = (None, None);
         info!("Getting pod with label: {}", label);
         let params = ListParams {
             label_selector: Some(format!("app={}", label)),
@@ -446,27 +451,33 @@ impl GlusterdNode {
 
         match res {
             Ok(mut p) => {
-                // TODO: blocks if no output
-                //let stdout = tokio_util::io::ReaderStream::new(p.stdout().unwrap())
-                //    .filter_map(|r| async {
-                //        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
-                //    })
-                //    .collect::<Vec<_>>()
-                //    .await
-                //    .join("");
-                //let stderr = tokio_util::io::ReaderStream::new(p.stderr().unwrap())
-                //    .filter_map(|r| async {
-                //        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
-                //    })
-                //    .collect::<Vec<_>>()
-                //    .await
-                //    .join("");
-                //info!("Stdout: {}", stdout);
-                //error!("Stderr: {}", stderr);
-                //let _ = p.join().await;
+                let stdout = tokio_util::io::ReaderStream::new(p.stdout().unwrap())
+                    .filter_map(|r| async {
+                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                    })
+                    .collect::<Vec<_>>()
+                    .await
+                    .join("");
+                let stderr = tokio_util::io::ReaderStream::new(p.stderr().unwrap())
+                    .filter_map(|r| async {
+                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                    })
+                    .collect::<Vec<_>>()
+                    .await
+                    .join("");
+                if stdout.len() > 0 {
+                    info!("Stdout: {}", stdout);
+                    retval.0 = Some(stdout);
+                }
+                if stderr.len() > 0 {
+                    error!("Stderr: {}", stderr);
+                    retval.1 = Some(stderr);
+                }
+                let _ = p.join().await;
             }
             Err(e) => error!("Error executing command: {}", e),
         }
+        retval
     }
 }
 
