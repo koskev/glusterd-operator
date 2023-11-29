@@ -33,6 +33,7 @@ use kube::{
 use kube::core::{CustomResourceExt, Resource};
 use kube_derive::CustomResource;
 use log::LevelFilter;
+use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use simplelog::{ColorChoice, TermLogger, TerminalMode};
@@ -255,24 +256,38 @@ impl GlusterdOperator {
 
                 // Execute peer probe for every node on the first pod
                 for s_node in &storage.spec.nodes {
+                    if node.name == s_node.name {
+                        // skip self
+                        continue;
+                    }
                     let service_name =
                         format!("glusterd-service-{}.{}", s_node.name, self.namespace);
                     info!("Executing for with service {}", service_name);
                     let command = vec!["gluster", "peer", "probe", &service_name];
                     node.exec_pod(command, &pod_api).await;
                     // TODO: wait for state == 3
-                    let command = vec!["gluster", "peer", "status"];
+                    let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
                     let mut connected = false;
                     info!("Waiting for connection to be established");
+                    // Waiting for the correct file to have "state=3"
+                    let pattern = r"(?m)^state=(.*)$";
+                    let regex = Regex::new(pattern).unwrap();
                     while !connected {
                         let (stdout, _err) = node.exec_pod(command.clone(), &pod_api).await;
                         match stdout {
                             Some(output) => {
+                                info!("Checking if line contains {}", service_name);
                                 if let Some(found_line) =
                                     output.split("\n\n").find(|s| s.contains(&service_name))
                                 {
-                                    connected =
-                                        found_line.contains("State: Peer in Cluster (Connected)");
+                                    info!("Got service name, checking regex");
+                                    if let Some(c) = regex.captures(found_line) {
+                                        info!("Found regex");
+                                        if let Some(g) = c.get(1) {
+                                            info!("State is {}", g.as_str());
+                                            connected = g.as_str() == "3";
+                                        }
+                                    }
                                 }
                             }
                             None => (),
