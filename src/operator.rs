@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::{Pod, Service, ServicePort, ServiceSpec};
@@ -18,7 +19,6 @@ use log::{error, info};
 pub struct GlusterdOperator {
     client: Client,
     namespace: String,
-    storage: Vec<GlusterdStorage>,
     nodes: Vec<GlusterdNode>,
 }
 
@@ -27,37 +27,30 @@ impl GlusterdOperator {
         Self {
             client,
             namespace: namespace.to_string(),
-            storage: vec![],
             nodes: vec![],
         }
     }
 
     pub fn add_storage(&mut self, storage: GlusterdStorage) {
-        self.storage.push(storage);
-    }
-
-    async fn update_nodes(&mut self) {
-        for storage in self.storage.iter() {
-            for node_spec in storage.spec.nodes.iter() {
-                let node_opt = self.nodes.iter_mut().find(|n| n.name == node_spec.name);
-                match node_opt {
-                    Some(node) => {
-                        // We already have a node
-                        node.add_storage(storage.clone());
-                    }
-                    None => {
-                        // First time seeing this node
-                        let mut node = GlusterdNode::new(&node_spec.name);
-                        node.add_storage(storage.clone());
-                        self.nodes.push(node);
-                    }
+        let storage_rc = Arc::new(storage);
+        for node_spec in storage_rc.spec.nodes.iter() {
+            let node_opt = self.nodes.iter_mut().find(|n| n.name == node_spec.name);
+            match node_opt {
+                Some(node) => {
+                    // We already have a node
+                    node.add_storage(storage_rc.clone());
+                }
+                None => {
+                    // First time seeing this node
+                    let mut node = GlusterdNode::new(&node_spec.name);
+                    node.add_storage(storage_rc.clone());
+                    self.nodes.push(node);
                 }
             }
         }
     }
 
     pub async fn update(&mut self) {
-        self.update_nodes().await;
         // TODO: support changing nodes
 
         let mut deployments = vec![];
@@ -132,42 +125,17 @@ impl GlusterdOperator {
             }
         }
 
-        // Get Pod with selector
+        // Take first node and probe it with every other node
 
-        info!("Iterating storage to exec commands");
-        // For every storage find one pod to probe and create brick
-        for storage in self.storage.iter() {
-            // Find node for current storage
-            let nodes: Vec<&GlusterdNode> = self
-                .nodes
-                .iter()
-                .filter(|node| {
-                    storage
-                        .spec
-                        .nodes
-                        .iter()
-                        .map(|sn| sn.name.clone())
-                        .find(|name| node.name == *name)
-                        .is_some()
-                })
-                .collect();
-            // TODO: error handling
-            for node in nodes {
-                let id = node.name.clone();
-                info!("id: {}", id);
-                let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-
-                // Execute peer probe for every node on the first pod
-                for s_node in &storage.spec.nodes {
-                    if node.name == s_node.name {
-                        // skip self
-                        continue;
-                    }
-                    let service_name =
-                        format!("glusterd-service-{}.{}", s_node.name, self.namespace);
+        let mut first_node: Option<&GlusterdNode> = None;
+        for node in &self.nodes {
+            match first_node {
+                Some(first_node) => {
+                    let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
+                    let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
                     info!("Executing for with service {}", service_name);
                     let command = vec!["gluster", "peer", "probe", &service_name];
-                    node.exec_pod(command, &pod_api).await;
+                    first_node.exec_pod(command, &pod_api).await;
                     // TODO: wait for state == 3
                     let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
                     let mut connected = false;
@@ -176,7 +144,7 @@ impl GlusterdOperator {
                     let pattern = r"(?m)^state=(.*)$";
                     let regex = Regex::new(pattern).unwrap();
                     while !connected {
-                        let (stdout, _err) = node.exec_pod(command.clone(), &pod_api).await;
+                        let (stdout, _err) = first_node.exec_pod(command.clone(), &pod_api).await;
                         match stdout {
                             Some(output) => {
                                 info!("Checking if line contains {}", service_name);
@@ -197,38 +165,40 @@ impl GlusterdOperator {
                         }
                     }
                 }
+                None => first_node = Some(node),
             }
-            // Now every node has probed every other node
-            info!("Done probing nodes");
-
-            // Create brick
-            //let bricks: Vec<String> = storage
-            //    .spec
-            //    .nodes
-            //    .iter()
-            //    .map(|node| {
-            //        let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
-            //        info!("Executing for with service {}", service_name);
-            //        format!("{}:{}", service_name, storage.get_brick_path())
-            //    })
-            //    .collect();
-
-            //let brick_len_str = bricks.len().to_string();
-            //let volume_name = storage.get_name();
-            //let mut command = vec![
-            //    "gluster",
-            //    "volume",
-            //    "create",
-            //    &volume_name,
-            //    "replica",
-            //    &brick_len_str,
-            //];
-            //let mut brick_ref: Vec<&str> = bricks.iter().map(|brick| brick.as_str()).collect();
-            //command.append(&mut brick_ref);
-            //command.push("force");
-            //glusterd_exec(command, &pod_api, &label_str).await;
-            //let command = vec!["gluster", "volume", "start", &volume_name];
-            //glusterd_exec(command, &pod_api, &label_str).await;
         }
+
+        // Now every node has probed every other node
+        info!("Done probing nodes");
+
+        // Create brick
+        //let bricks: Vec<String> = storage
+        //    .spec
+        //    .nodes
+        //    .iter()
+        //    .map(|node| {
+        //        let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
+        //        info!("Executing for with service {}", service_name);
+        //        format!("{}:{}", service_name, storage.get_brick_path())
+        //    })
+        //    .collect();
+
+        //let brick_len_str = bricks.len().to_string();
+        //let volume_name = storage.get_name();
+        //let mut command = vec![
+        //    "gluster",
+        //    "volume",
+        //    "create",
+        //    &volume_name,
+        //    "replica",
+        //    &brick_len_str,
+        //];
+        //let mut brick_ref: Vec<&str> = bricks.iter().map(|brick| brick.as_str()).collect();
+        //command.append(&mut brick_ref);
+        //command.push("force");
+        //glusterd_exec(command, &pod_api, &label_str).await;
+        //let command = vec!["gluster", "volume", "start", &volume_name];
+        //glusterd_exec(command, &pod_api, &label_str).await;
     }
 }

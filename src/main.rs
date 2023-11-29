@@ -48,7 +48,6 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Actio
     match operator_opt {
         Some(o) => operator = o,
         None => {
-            // TODO: race condition with hashmap?
             operator_lock.insert(
                 namespace.clone(),
                 Arc::new(RwLock::new(GlusterdOperator::new(

@@ -15,7 +15,10 @@ use kube::{
     Api,
 };
 use log::{error, info};
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use crate::{storage::GlusterdStorage, utils::get_label};
 
@@ -38,7 +41,7 @@ fn create_volume(name: &str, mount_path: &str, host_path: &str) -> (Volume, Volu
 
 pub struct GlusterdNode {
     pub name: String,
-    pub storages: HashMap<String, GlusterdStorage>,
+    pub storages: HashMap<String, Arc<GlusterdStorage>>,
 }
 
 impl GlusterdNode {
@@ -49,7 +52,7 @@ impl GlusterdNode {
         }
     }
 
-    pub fn add_storage(&mut self, storage: GlusterdStorage) {
+    pub fn add_storage(&mut self, storage: Arc<GlusterdStorage>) {
         info!("Adding storage {:?}", storage);
         self.storages.insert(storage.get_name(), storage);
     }
