@@ -261,6 +261,23 @@ impl GlusterdOperator {
                     let command = vec!["gluster", "peer", "probe", &service_name];
                     node.exec_pod(command, &pod_api).await;
                     // TODO: wait for state == 3
+                    let command = vec!["gluster", "peer", "status"];
+                    let mut connected = false;
+                    info!("Waiting for connection to be established");
+                    while !connected {
+                        let (stdout, _err) = node.exec_pod(command.clone(), &pod_api).await;
+                        match stdout {
+                            Some(output) => {
+                                if let Some(found_line) =
+                                    output.split("\n\n").find(|s| s.contains(&service_name))
+                                {
+                                    connected =
+                                        found_line.contains("State: Peer in Cluster (Connected)");
+                                }
+                            }
+                            None => (),
+                        }
+                    }
                 }
             }
             // Now every node has probed every other node
