@@ -6,9 +6,9 @@ metadata:
   name: storage-pool-2
 spec:
   name: gv1
-  type: Dispersed
+  type: Replica
   nodes:
     - name: raspberrypi-server
       path: "/tmp/test2"
-    - name: kevin-elite
+    - name: rpi-server2
       path: "/tmp/test2"
