@@ -66,10 +66,6 @@ impl GlusterdOperator {
         let service_api = Api::<Service>::namespaced(self.client.clone(), &self.namespace);
 
         for node in self.nodes.iter() {
-            let id = node.name.clone();
-            let label_str = get_label(&id);
-            let label = BTreeMap::from([("app".to_string(), label_str.clone())]);
-
             let stateful_set = node.get_statefulset(&self.namespace);
             let patch = Patch::Apply(stateful_set.clone());
             let patch_result = statefulset_api
@@ -94,34 +90,7 @@ impl GlusterdOperator {
             // --- DEPLOYMENT END ---
 
             // Start service for each node
-            let svc = Service {
-                metadata: ObjectMeta {
-                    name: Some(format!("glusterd-service-{}", id)),
-                    namespace: Some(self.namespace.clone()),
-                    labels: Some(label.clone()),
-                    ..Default::default()
-                },
-                spec: Some(ServiceSpec {
-                    selector: Some(label.clone()),
-                    ports: Some(vec![
-                        ServicePort {
-                            app_protocol: Some("TCP".to_string()),
-                            name: Some("brick".to_string()),
-                            port: 24007,
-                            ..Default::default()
-                        },
-                        ServicePort {
-                            name: Some("brick2".to_string()),
-                            port: 24008,
-                            app_protocol: Some("TCP".to_string()),
-                            ..Default::default()
-                        },
-                    ]),
-                    cluster_ip: Some("None".to_string()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
+            let svc = node.get_service(&self.namespace);
             // TODO: patch to prevent connection loss
             let _ = service_api
                 .delete(
@@ -138,6 +107,7 @@ impl GlusterdOperator {
 
             // Wait for all to become ready
             for deployment in deployments.iter() {
+                let label_str = get_label(&node.name);
                 let name = deployment.metadata.name.clone().unwrap();
                 // Unless we wait: We get a 500 error
                 // TODO: make a "wait_for_pod" function

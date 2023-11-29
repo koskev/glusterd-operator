@@ -4,7 +4,7 @@ use k8s_openapi::{
         apps::v1::{StatefulSet, StatefulSetSpec},
         core::v1::{
             Container, HostPathVolumeSource, Pod, PodSpec, PodTemplateSpec, ResourceRequirements,
-            SecurityContext, Volume, VolumeMount,
+            SecurityContext, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
         },
     },
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::LabelSelector},
@@ -147,6 +147,39 @@ impl GlusterdNode {
                         ..Default::default()
                     }),
                 },
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    pub fn get_service(&self, namespace: &str) -> Service {
+        let label_str = get_label(&self.name);
+        let label = BTreeMap::from([("app".to_string(), label_str)]);
+        Service {
+            metadata: ObjectMeta {
+                name: Some(format!("glusterd-service-{}", self.name)),
+                namespace: Some(namespace.to_string()),
+                labels: Some(label.clone()),
+                ..Default::default()
+            },
+            spec: Some(ServiceSpec {
+                selector: Some(label.clone()),
+                ports: Some(vec![
+                    ServicePort {
+                        app_protocol: Some("TCP".to_string()),
+                        name: Some("brick".to_string()),
+                        port: 24007,
+                        ..Default::default()
+                    },
+                    ServicePort {
+                        name: Some("brick2".to_string()),
+                        port: 24008,
+                        app_protocol: Some("TCP".to_string()),
+                        ..Default::default()
+                    },
+                ]),
+                cluster_ip: Some("None".to_string()),
                 ..Default::default()
             }),
             ..Default::default()
