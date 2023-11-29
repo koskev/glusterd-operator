@@ -21,7 +21,12 @@ use kube::{
         Api, AttachParams, DeleteParams, ListParams, Patch, PatchParams, PostParams, WatchParams,
     },
     core::{ObjectMeta, WatchEvent},
-    runtime::{controller::Action, wait::Condition, watcher, Controller, WatchStreamExt},
+    runtime::{
+        conditions,
+        controller::Action,
+        wait::{await_condition, Condition},
+        watcher, Controller, WatchStreamExt,
+    },
     Client, ResourceExt,
 };
 
@@ -200,39 +205,30 @@ impl GlusterdOperator {
             // Wait for all to become ready
             for deployment in deployments.iter() {
                 let name = deployment.metadata.name.clone().unwrap();
-                // TODO: this works because of the timeout. Otherwise it hangs forever
-                // But unless we wait: We get a 500
-                let wp = WatchParams::default()
-                    .labels(&format!("app={}", label_str.clone()))
-                    .timeout(10);
+                // Unless we wait: We get a 500 error
+                // TODO: make a "wait_for_pod" function
                 let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-                let mut stream = pod_api.watch(&wp, "0").await.unwrap().boxed();
-                info!("Waiting for {} with label {}", name, label_str);
-                while let Some(status) = stream.try_next().await.unwrap() {
-                    match status {
-                        WatchEvent::Added(o) => {
-                            info!("Added wp {}", o.name_any());
-                        }
-                        WatchEvent::Modified(o) => {
-                            let s = o.status.as_ref().expect("status exists on pod");
-                            if s.phase.clone().unwrap_or_default() == "Running" {
-                                info!("Ready to attach to {}", o.name_any());
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
+
+                let params = ListParams {
+                    label_selector: Some(format!("app={}", label_str.clone())),
+                    ..Default::default()
+                };
+                let pod_list = pod_api.list(&params).await.unwrap();
+
+                for pod in pod_list {
+                    let pod_name = &pod.metadata.name.unwrap();
+                    info!("Awaiting {}", pod_name);
+                    await_condition(pod_api.clone(), &pod_name, conditions::is_pod_running())
+                        .await
+                        .unwrap();
+                    info!("Done awaiting {}", pod_name);
                 }
+
+                info!("Waiting done for {}!", name);
             }
-            info!("Waiting done!");
         }
 
         // Get Pod with selector
-        // TODO: 1. probe every node to every node
-        // 2. delete hostname1 if there is a hostname2
-        // otherwise we have weird hostnames tied to the service ip due to ptr
-        // just use a regex
-        // make a "wait_for_pod" function
 
         info!("Iterating storage to exec commands");
         // For every storage find one pod to probe and create brick
@@ -255,8 +251,6 @@ impl GlusterdOperator {
             for node in nodes {
                 let id = node.name.clone();
                 info!("id: {}", id);
-                let label_str = get_label(&id);
-                info!("Getting pod with label: {}", label_str);
                 let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
 
                 // Execute peer probe for every node on the first pod
@@ -266,10 +260,11 @@ impl GlusterdOperator {
                     info!("Executing for with service {}", service_name);
                     let command = vec!["gluster", "peer", "probe", &service_name];
                     node.exec_pod(command, &pod_api).await;
-                    // TODO: if new node -> Mark for kill and wait for state == 3
+                    // TODO: wait for state == 3
                 }
             }
             // Now every node has probed every other node
+            info!("Done probing nodes");
 
             // Create brick
             //let bricks: Vec<String> = storage
