@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use k8s_openapi::api::apps::v1::StatefulSet;
@@ -42,7 +42,7 @@ impl GlusterdOperator {
                 }
                 None => {
                     // First time seeing this node
-                    let mut node = GlusterdNode::new(&node_spec.name);
+                    let mut node = GlusterdNode::new(&node_spec.name, &self.namespace);
                     node.add_storage(storage_rc.clone());
                     self.nodes.push(node);
                 }
@@ -57,6 +57,7 @@ impl GlusterdOperator {
         let mut services = vec![];
         let statefulset_api = Api::<StatefulSet>::namespaced(self.client.clone(), &self.namespace);
         let service_api = Api::<Service>::namespaced(self.client.clone(), &self.namespace);
+        let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
 
         for node in self.nodes.iter() {
             let stateful_set = node.get_statefulset(&self.namespace);
@@ -131,46 +132,66 @@ impl GlusterdOperator {
         for node in &self.nodes {
             match first_node {
                 Some(first_node) => {
-                    let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-                    let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
-                    info!("Executing for with service {}", service_name);
-                    let command = vec!["gluster", "peer", "probe", &service_name];
-                    first_node.exec_pod(command, &pod_api).await;
-                    // TODO: wait for state == 3
-                    let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
-                    let mut connected = false;
-                    info!("Waiting for connection to be established");
-                    // Waiting for the correct file to have "state=3"
-                    let pattern = r"(?m)^state=(.*)$";
-                    let regex = Regex::new(pattern).unwrap();
-                    while !connected {
-                        let (stdout, _err) = first_node.exec_pod(command.clone(), &pod_api).await;
-                        match stdout {
-                            Some(output) => {
-                                info!("Checking if line contains {}", service_name);
-                                if let Some(found_line) =
-                                    output.split("\n\n").find(|s| s.contains(&service_name))
-                                {
-                                    info!("Got service name, checking regex");
-                                    if let Some(c) = regex.captures(found_line) {
-                                        info!("Found regex");
-                                        if let Some(g) = c.get(1) {
-                                            info!("State is {}", g.as_str());
-                                            connected = g.as_str() == "3";
-                                        }
-                                    }
-                                }
-                            }
-                            None => (),
-                        }
-                    }
+                    first_node.probe(&node.name, &pod_api).await;
                 }
                 None => first_node = Some(node),
             }
         }
 
+        // Kill nodes to apply correct dns names
+        // Only apply to nodes that have a wrong dns name in their config
+        // only kill one at a time to prevent downtimes
+
         // Now every node has probed every other node
         info!("Done probing nodes");
+
+        for node in &self.nodes {
+            let command = vec!["gluster", "volume", "list"];
+            let (output, _) = node.exec_pod(command, &pod_api).await;
+            let mut existing_volumes = HashSet::new();
+            if let Some(output) = output {
+                output.split("\n").for_each(|v| {
+                    existing_volumes.insert(v.to_string());
+                });
+            }
+            for (name, storage) in &node.storages {
+                // Volume does not exist yet
+                if !existing_volumes.contains(name) {
+                    // Create volume
+                    let bricks: Vec<String> = storage
+                        .spec
+                        .nodes
+                        .iter()
+                        .map(|n| {
+                            let service_name =
+                                format!("glusterd-service-{}.{}", n.name, self.namespace);
+                            format!("{}:{}", service_name, storage.get_brick_path())
+                        })
+                        .collect();
+                    let brick_len_str = bricks.len().to_string();
+                    let volume_name = storage.get_name();
+                    let mut command = vec![
+                        "gluster",
+                        "volume",
+                        "create",
+                        &volume_name,
+                        // TODO: support more than replica
+                        "replica",
+                        &brick_len_str,
+                    ];
+                    let mut brick_ref: Vec<&str> =
+                        bricks.iter().map(|brick| brick.as_str()).collect();
+                    command.append(&mut brick_ref);
+                    command.push("force");
+                    node.exec_pod(command, &pod_api).await;
+                    let command = vec!["gluster", "volume", "start", &volume_name];
+                    node.exec_pod(command, &pod_api).await;
+
+                    // Add to existing volumes
+                    existing_volumes.insert(name.clone());
+                }
+            }
+        }
 
         // Create brick
         //let bricks: Vec<String> = storage

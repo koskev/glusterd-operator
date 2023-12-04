@@ -15,6 +15,7 @@ use kube::{
     Api,
 };
 use log::{error, info};
+use regex::Regex;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -42,13 +43,15 @@ fn create_volume(name: &str, mount_path: &str, host_path: &str) -> (Volume, Volu
 pub struct GlusterdNode {
     pub name: String,
     pub storages: HashMap<String, Arc<GlusterdStorage>>,
+    namespace: String,
 }
 
 impl GlusterdNode {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str, namespace: &str) -> Self {
         Self {
             name: name.to_string(),
             storages: HashMap::new(),
+            namespace: namespace.to_string(),
         }
     }
 
@@ -248,5 +251,40 @@ impl GlusterdNode {
             Err(e) => error!("Error executing command: {}", e),
         }
         retval
+    }
+
+    pub async fn probe(&self, peer: &str, pod_api: &Api<Pod>) {
+        let service_name = format!("glusterd-service-{}.{}", peer, self.namespace);
+        info!("Executing for with service {}", service_name);
+        let command = vec!["gluster", "peer", "probe", &service_name];
+        self.exec_pod(command, &pod_api).await;
+        // TODO: wait for state == 3
+        let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
+        let mut connected = false;
+        info!("Waiting for connection to be established");
+        // Waiting for the correct file to have "state=3"
+        let pattern = r"(?m)^state=(.*)$";
+        let regex = Regex::new(pattern).unwrap();
+        while !connected {
+            let (stdout, _err) = self.exec_pod(command.clone(), &pod_api).await;
+            match stdout {
+                Some(output) => {
+                    info!("Checking if line contains {}", service_name);
+                    if let Some(found_line) =
+                        output.split("\n\n").find(|s| s.contains(&service_name))
+                    {
+                        info!("Got service name, checking regex");
+                        if let Some(c) = regex.captures(found_line) {
+                            info!("Found regex");
+                            if let Some(g) = c.get(1) {
+                                info!("State is {}", g.as_str());
+                                connected = g.as_str() == "3";
+                            }
+                        }
+                    }
+                }
+                None => (),
+            }
+        }
     }
 }
