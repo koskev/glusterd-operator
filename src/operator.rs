@@ -124,11 +124,11 @@ impl GlusterdOperator {
         for node in &self.nodes {
             if node.has_wrong_peer(&pod_api).await {
                 node.kill_pod(&pod_api).await;
+                // Wait for pod to go online again
+                // Once it is online we can kill the next node
+                node.wait_for_pod(&pod_api).await;
             }
         }
-
-        // Only apply to nodes that have a wrong dns name in their config
-        // only kill one at a time to prevent downtimes
 
         // Now every node has probed every other node
         info!("Done probing nodes");
@@ -180,34 +180,5 @@ impl GlusterdOperator {
                 }
             }
         }
-
-        // Create brick
-        //let bricks: Vec<String> = storage
-        //    .spec
-        //    .nodes
-        //    .iter()
-        //    .map(|node| {
-        //        let service_name = format!("glusterd-service-{}.{}", node.name, self.namespace);
-        //        info!("Executing for with service {}", service_name);
-        //        format!("{}:{}", service_name, storage.get_brick_path())
-        //    })
-        //    .collect();
-
-        //let brick_len_str = bricks.len().to_string();
-        //let volume_name = storage.get_name();
-        //let mut command = vec![
-        //    "gluster",
-        //    "volume",
-        //    "create",
-        //    &volume_name,
-        //    "replica",
-        //    &brick_len_str,
-        //];
-        //let mut brick_ref: Vec<&str> = bricks.iter().map(|brick| brick.as_str()).collect();
-        //command.append(&mut brick_ref);
-        //command.push("force");
-        //glusterd_exec(command, &pod_api, &label_str).await;
-        //let command = vec!["gluster", "volume", "start", &volume_name];
-        //glusterd_exec(command, &pod_api, &label_str).await;
     }
 }
