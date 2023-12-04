@@ -138,6 +138,18 @@ impl GlusterdOperator {
             }
         }
 
+        // Every node is probed now.
+        // It might be possible that some nodes have the weird peer info
+
+        // Check all nodes for weird peers and restart them if needed
+        // The actual correction is done by the container to avoid possible errors with a running
+        // instance
+        for node in &self.nodes {
+            if node.has_wrong_peer(&pod_api).await {
+                node.kill_pod(&pod_api).await;
+            }
+        }
+
         // Kill nodes to apply correct dns names
         // Only apply to nodes that have a wrong dns name in their config
         // only kill one at a time to prevent downtimes

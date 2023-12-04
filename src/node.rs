@@ -10,7 +10,7 @@ use k8s_openapi::{
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::LabelSelector},
 };
 use kube::{
-    api::{AttachParams, ListParams},
+    api::{AttachParams, DeleteParams, ListParams},
     core::ObjectMeta,
     Api,
 };
@@ -197,29 +197,13 @@ impl GlusterdNode {
         command: Vec<&str>,
         pod_api: &Api<Pod>,
     ) -> (Option<String>, Option<String>) {
-        let label = get_label(&self.name);
         let mut retval = (None, None);
-        info!("Getting pod with label: {}", label);
-        let params = ListParams {
-            label_selector: Some(format!("app={}", label)),
-            ..Default::default()
-        };
-        let pod_list = pod_api.list(&params).await.unwrap();
-        // XXX: Assumes we only have one pod
-        let pod = pod_list.items.first().unwrap();
+        let pod_name = self.get_pod_name(pod_api).await.unwrap();
 
-        info!(
-            "Executing \"{:?}\" in {}",
-            command,
-            pod.metadata.name.clone().unwrap()
-        );
+        info!("Executing \"{:?}\" in {}", command, pod_name);
 
         let res = pod_api
-            .exec(
-                &pod.metadata.name.clone().unwrap(),
-                command,
-                &AttachParams::default(),
-            )
+            .exec(&pod_name, command, &AttachParams::default())
             .await;
 
         match res {
@@ -285,6 +269,43 @@ impl GlusterdNode {
                 }
                 None => (),
             }
+        }
+    }
+
+    pub async fn kill_pod(&self, pod_api: &Api<Pod>) {
+        let _ = pod_api.delete(&self.name, &DeleteParams::default()).await;
+    }
+
+    pub async fn has_wrong_peer(&self, pod_api: &Api<Pod>) -> bool {
+        let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
+        let pattern = r"(?m)^hostname1=[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}\.";
+        let regex = Regex::new(pattern).unwrap();
+
+        let (stdout, _err) = self.exec_pod(command.clone(), &pod_api).await;
+        match stdout {
+            Some(output) => {
+                return regex.find(&output).is_some();
+            }
+            None => return false,
+        }
+    }
+
+    async fn get_pod_name(&self, pod_api: &Api<Pod>) -> Option<String> {
+        let label = get_label(&self.name);
+        info!("Getting pod with label: {}", label);
+        let params = ListParams {
+            label_selector: Some(format!("app={}", label)),
+            ..Default::default()
+        };
+        let pod_list = pod_api.list(&params).await;
+        match pod_list {
+            Ok(pod_list) => {
+                // XXX: Assumes we only have one pod
+                let pod = pod_list.items.first().unwrap();
+
+                return pod.metadata.name.clone();
+            }
+            Err(_e) => return None,
         }
     }
 }
