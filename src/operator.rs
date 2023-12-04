@@ -10,7 +10,7 @@ use kube::runtime::wait::await_condition;
 use kube::{Api, Client};
 use regex::Regex;
 
-use crate::node::GlusterdNode;
+use crate::node::{ExecPod, GlusterdNode};
 use crate::storage::GlusterdStorage;
 use crate::utils::get_label;
 

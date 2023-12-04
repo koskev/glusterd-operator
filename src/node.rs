@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use futures::StreamExt;
 use k8s_openapi::{
     api::{
@@ -24,6 +25,9 @@ use std::{
 
 use crate::{storage::GlusterdStorage, utils::get_label};
 
+#[cfg(test)]
+use mockall::{automock, mock, predicate::*};
+
 fn create_volume(name: &str, mount_path: &str, host_path: &str) -> (Volume, VolumeMount) {
     let volume_mount = VolumeMount {
         mount_path: mount_path.to_string(),
@@ -47,6 +51,15 @@ pub struct GlusterdNode {
     namespace: String,
 }
 
+#[async_trait]
+pub trait ExecPod {
+    async fn exec_pod(
+        &self,
+        command: Vec<&str>,
+        pod_api: &Api<Pod>,
+    ) -> (Option<String>, Option<String>);
+}
+
 impl GlusterdNode {
     pub fn new(name: &str, namespace: &str) -> Self {
         Self {
@@ -54,6 +67,10 @@ impl GlusterdNode {
             storages: HashMap::new(),
             namespace: namespace.to_string(),
         }
+    }
+
+    pub fn get_name(&self) -> String {
+        self.name.clone()
     }
 
     pub fn add_storage(&mut self, storage: Arc<GlusterdStorage>) {
@@ -193,51 +210,6 @@ impl GlusterdNode {
         }
     }
 
-    pub async fn exec_pod(
-        &self,
-        command: Vec<&str>,
-        pod_api: &Api<Pod>,
-    ) -> (Option<String>, Option<String>) {
-        let mut retval = (None, None);
-        let pod_name = self.get_pod_name(pod_api).await.unwrap();
-
-        info!("Executing \"{:?}\" in {}", command, pod_name);
-
-        let res = pod_api
-            .exec(&pod_name, command, &AttachParams::default())
-            .await;
-
-        match res {
-            Ok(mut p) => {
-                let stdout = tokio_util::io::ReaderStream::new(p.stdout().unwrap())
-                    .filter_map(|r| async {
-                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
-                    })
-                    .collect::<Vec<_>>()
-                    .await
-                    .join("");
-                let stderr = tokio_util::io::ReaderStream::new(p.stderr().unwrap())
-                    .filter_map(|r| async {
-                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
-                    })
-                    .collect::<Vec<_>>()
-                    .await
-                    .join("");
-                if stdout.len() > 0 {
-                    info!("Stdout: {}", stdout);
-                    retval.0 = Some(stdout);
-                }
-                if stderr.len() > 0 {
-                    error!("Stderr: {}", stderr);
-                    retval.1 = Some(stderr);
-                }
-                let _ = p.join().await;
-            }
-            Err(e) => error!("Error executing command: {}", e),
-        }
-        retval
-    }
-
     pub async fn probe(&self, peer: &str, pod_api: &Api<Pod>) {
         let service_name = format!("glusterd-service-{}.{}", peer, self.namespace);
         info!("Executing for with service {}", service_name);
@@ -286,6 +258,7 @@ impl GlusterdNode {
         let (stdout, _err) = self.exec_pod(command.clone(), &pod_api).await;
         match stdout {
             Some(output) => {
+                println!("Checking for {} in {}", pattern, output);
                 return regex.find(&output).is_some();
             }
             None => return false,
@@ -318,5 +291,152 @@ impl GlusterdNode {
             .await
             .unwrap();
         info!("Done awaiting {}", pod_name);
+    }
+}
+
+#[cfg(not(test))]
+#[async_trait]
+impl ExecPod for GlusterdNode {
+    async fn exec_pod(
+        &self,
+        command: Vec<&str>,
+        pod_api: &Api<Pod>,
+    ) -> (Option<String>, Option<String>) {
+        let mut retval = (None, None);
+        let pod_name = self.get_pod_name(pod_api).await.unwrap();
+
+        info!("Executing \"{:?}\" in {}", command, pod_name);
+
+        let res = pod_api
+            .exec(&pod_name, command, &AttachParams::default())
+            .await;
+
+        match res {
+            Ok(mut p) => {
+                let stdout = tokio_util::io::ReaderStream::new(p.stdout().unwrap())
+                    .filter_map(|r| async {
+                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                    })
+                    .collect::<Vec<_>>()
+                    .await
+                    .join("");
+                let stderr = tokio_util::io::ReaderStream::new(p.stderr().unwrap())
+                    .filter_map(|r| async {
+                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                    })
+                    .collect::<Vec<_>>()
+                    .await
+                    .join("");
+                if stdout.len() > 0 {
+                    info!("Stdout: {}", stdout);
+                    retval.0 = Some(stdout);
+                }
+                if stderr.len() > 0 {
+                    error!("Stderr: {}", stderr);
+                    retval.1 = Some(stderr);
+                }
+                let _ = p.join().await;
+            }
+            Err(e) => error!("Error executing command: {}", e),
+        }
+        retval
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use kube::Client;
+
+    use crate::storage::{GlusterdStorage, GlusterdStorageSpec, GlusterdStorageTypeSpec};
+
+    use super::*;
+
+    static mut PEER_STDOUT: String = String::new();
+
+    #[async_trait]
+    impl ExecPod for GlusterdNode {
+        async fn exec_pod(
+            &self,
+            command: Vec<&str>,
+            _pod_api: &Api<Pod>,
+        ) -> (Option<String>, Option<String>) {
+            let mut retval = (None, None);
+            let peer_command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
+            if command.iter().all(|item| peer_command.contains(item)) {
+                // Get peer command
+                let stdout = unsafe { &PEER_STDOUT };
+                retval.0 = Some(stdout.to_string());
+            }
+            retval
+        }
+    }
+
+    #[test]
+    fn test_new() {
+        let node = GlusterdNode::new("test_node", "ns");
+
+        assert_eq!(node.name, "test_node");
+        assert_eq!(node.namespace, "ns");
+        assert_eq!(node.storages.len(), 0);
+    }
+
+    #[test]
+    fn test_storage() {
+        let mut node = GlusterdNode::new("test_node", "ns");
+        let storage_spec = GlusterdStorageSpec {
+            r#type: GlusterdStorageTypeSpec::Replica,
+            nodes: vec![],
+        };
+        let storage = Arc::new(GlusterdStorage::new("test_storage", storage_spec));
+        assert_eq!(node.storages.len(), 0);
+
+        node.add_storage(storage.clone());
+
+        assert_eq!(node.storages.len(), 1);
+        assert_eq!(
+            node.storages[&storage.get_name()].get_name(),
+            storage.get_name()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wrong_peer() {
+        let node = GlusterdNode::new("test_node", "ns");
+        let pod_api = Api::<Pod>::all(Client::try_default().await.unwrap());
+
+        unsafe {
+            PEER_STDOUT = r#"
+                ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
+                uuid=348b125f-aeef-4393-a182-609ade09c8b1
+                state=3
+                hostname1=glusterd-service-raspberrypi-server2.default.svc.cluster.local
+
+                ==> /var/lib/glusterd/peers/6199aaf4-63a1-4200-aa70-fdc171adb164 <==
+                uuid=6199aaf4-63a1-4200-aa70-fdc171adb164
+                state=3
+                hostname1=glusterd-service-raspberrypi-server.default.svc.cluster.local"#
+                .lines()
+                .map(|line| line.trim_start())
+                .collect::<Vec<_>>()
+                .join("\n");
+            println!("{}", PEER_STDOUT);
+        }
+        assert!(!node.has_wrong_peer(&pod_api).await);
+
+        unsafe {
+            PEER_STDOUT = r#"
+                ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
+                uuid=348b125f-aeef-4393-a182-609ade09c8b1
+                state=3
+                hostname1=glusterd-service-raspberrypi-server2.default.svc.cluster.local
+
+                ==> /var/lib/glusterd/peers/6199aaf4-63a1-4200-aa70-fdc171adb164 <==
+                uuid=6199aaf4-63a1-4200-aa70-fdc171adb164
+                state=3
+                hostname1=10-244-0-137.glusterd-service-raspberrypi-server.default.svc.cluster.local"#.lines().map(|line| line.trim_start()).collect::<Vec<_>>().join("\n");
+        }
+        assert!(node.has_wrong_peer(&pod_api).await);
     }
 }
