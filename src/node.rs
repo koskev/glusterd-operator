@@ -345,7 +345,7 @@ impl ExecPod for GlusterdNode {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
+    use std::{collections::VecDeque, sync::Arc};
 
     use kube::Client;
 
@@ -353,7 +353,7 @@ mod test {
 
     use super::*;
 
-    static mut PEER_STDOUT: String = String::new();
+    static mut PEER_STDOUT_LIST: VecDeque<String> = VecDeque::new();
 
     #[async_trait]
     impl ExecPod for GlusterdNode {
@@ -362,14 +362,8 @@ mod test {
             command: Vec<&str>,
             _pod_api: &Api<Pod>,
         ) -> (Option<String>, Option<String>) {
-            let mut retval = (None, None);
-            let peer_command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
-            if command.iter().all(|item| peer_command.contains(item)) {
-                // Get peer command
-                let stdout = unsafe { &PEER_STDOUT };
-                retval.0 = Some(stdout.to_string());
-            }
-            retval
+            let stdout = unsafe { PEER_STDOUT_LIST.pop_front() };
+            (stdout, None)
         }
     }
 
@@ -406,36 +400,41 @@ mod test {
         let node = GlusterdNode::new("test_node", "ns");
         let pod_api = Api::<Pod>::all(Client::try_default().await.unwrap());
 
-        unsafe {
-            PEER_STDOUT = r#"
-                ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
-                uuid=348b125f-aeef-4393-a182-609ade09c8b1
-                state=3
-                hostname1=glusterd-service-raspberrypi-server2.default.svc.cluster.local
+        let stdout = r#"
+            ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
+            uuid=348b125f-aeef-4393-a182-609ade09c8b1
+            state=3
+            hostname1=glusterd-service-raspberrypi-server2.default.svc.cluster.local
 
-                ==> /var/lib/glusterd/peers/6199aaf4-63a1-4200-aa70-fdc171adb164 <==
-                uuid=6199aaf4-63a1-4200-aa70-fdc171adb164
-                state=3
-                hostname1=glusterd-service-raspberrypi-server.default.svc.cluster.local"#
-                .lines()
-                .map(|line| line.trim_start())
-                .collect::<Vec<_>>()
-                .join("\n");
-            println!("{}", PEER_STDOUT);
+            ==> /var/lib/glusterd/peers/6199aaf4-63a1-4200-aa70-fdc171adb164 <==
+            uuid=6199aaf4-63a1-4200-aa70-fdc171adb164
+            state=3
+            hostname1=glusterd-service-raspberrypi-server.default.svc.cluster.local"#
+            .lines()
+            .map(|line| line.trim_start())
+            .collect::<Vec<_>>()
+            .join("\n");
+        unsafe {
+            PEER_STDOUT_LIST.push_back(stdout);
         }
         assert!(!node.has_wrong_peer(&pod_api).await);
 
-        unsafe {
-            PEER_STDOUT = r#"
-                ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
-                uuid=348b125f-aeef-4393-a182-609ade09c8b1
-                state=3
-                hostname1=glusterd-service-raspberrypi-server2.default.svc.cluster.local
+        let stdout = r#"
+            ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
+            uuid=348b125f-aeef-4393-a182-609ade09c8b1
+            state=3
+            hostname1=glusterd-service-raspberrypi-server2.default.svc.cluster.local
 
-                ==> /var/lib/glusterd/peers/6199aaf4-63a1-4200-aa70-fdc171adb164 <==
-                uuid=6199aaf4-63a1-4200-aa70-fdc171adb164
-                state=3
-                hostname1=10-244-0-137.glusterd-service-raspberrypi-server.default.svc.cluster.local"#.lines().map(|line| line.trim_start()).collect::<Vec<_>>().join("\n");
+            ==> /var/lib/glusterd/peers/6199aaf4-63a1-4200-aa70-fdc171adb164 <==
+            uuid=6199aaf4-63a1-4200-aa70-fdc171adb164
+            state=3
+            hostname1=10-244-0-137.glusterd-service-raspberrypi-server.default.svc.cluster.local"#
+            .lines()
+            .map(|line| line.trim_start())
+            .collect::<Vec<_>>()
+            .join("\n");
+        unsafe {
+            PEER_STDOUT_LIST.push_back(stdout);
         }
         assert!(node.has_wrong_peer(&pod_api).await);
     }
