@@ -12,6 +12,7 @@ use k8s_openapi::{
 use kube::{
     api::{AttachParams, DeleteParams, ListParams},
     core::ObjectMeta,
+    runtime::{conditions, wait::await_condition},
     Api,
 };
 use log::{error, info};
@@ -273,7 +274,8 @@ impl GlusterdNode {
     }
 
     pub async fn kill_pod(&self, pod_api: &Api<Pod>) {
-        let _ = pod_api.delete(&self.name, &DeleteParams::default()).await;
+        let pod_name = self.get_pod_name(pod_api).await.unwrap();
+        let _ = pod_api.delete(&pod_name, &DeleteParams::default()).await;
     }
 
     pub async fn has_wrong_peer(&self, pod_api: &Api<Pod>) -> bool {
@@ -307,5 +309,14 @@ impl GlusterdNode {
             }
             Err(_e) => return None,
         }
+    }
+
+    pub async fn wait_for_pod(&self, pod_api: &Api<Pod>) {
+        let pod_name = self.get_pod_name(pod_api).await.unwrap();
+        info!("Awaiting {}", pod_name);
+        await_condition(pod_api.clone(), &pod_name, conditions::is_pod_running())
+            .await
+            .unwrap();
+        info!("Done awaiting {}", pod_name);
     }
 }

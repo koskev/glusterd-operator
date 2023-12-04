@@ -100,30 +100,7 @@ impl GlusterdOperator {
             services.push(s);
 
             // Wait for all to become ready
-            for deployment in deployments.iter() {
-                let label_str = get_label(&node.name);
-                let name = deployment.metadata.name.clone().unwrap();
-                // Unless we wait: We get a 500 error
-                // TODO: make a "wait_for_pod" function
-                let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-
-                let params = ListParams {
-                    label_selector: Some(format!("app={}", label_str.clone())),
-                    ..Default::default()
-                };
-                let pod_list = pod_api.list(&params).await.unwrap();
-
-                for pod in pod_list {
-                    let pod_name = &pod.metadata.name.unwrap();
-                    info!("Awaiting {}", pod_name);
-                    await_condition(pod_api.clone(), &pod_name, conditions::is_pod_running())
-                        .await
-                        .unwrap();
-                    info!("Done awaiting {}", pod_name);
-                }
-
-                info!("Waiting done for {}!", name);
-            }
+            node.wait_for_pod(&pod_api).await;
         }
 
         // Take first node and probe it with every other node
@@ -150,7 +127,6 @@ impl GlusterdOperator {
             }
         }
 
-        // Kill nodes to apply correct dns names
         // Only apply to nodes that have a wrong dns name in their config
         // only kill one at a time to prevent downtimes
 
