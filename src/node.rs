@@ -344,7 +344,7 @@ impl ExecPod for GlusterdNode {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use std::{collections::VecDeque, sync::Arc};
 
     use kube::Client;
@@ -356,8 +356,16 @@ mod test {
     use super::*;
     use serial_test::serial;
 
-    static mut PEER_STDOUT_LIST: VecDeque<String> = VecDeque::new();
-    static mut PEER_CMD_LIST: VecDeque<Vec<String>> = VecDeque::new();
+    pub(crate) static mut PEER_STDOUT_LIST: VecDeque<String> = VecDeque::new();
+    pub(crate) static mut PEER_CMD_LIST: VecDeque<Vec<String>> = VecDeque::new();
+
+    pub(crate) fn get_last_cmd() -> Option<String> {
+        let cmd = unsafe { PEER_CMD_LIST.pop_front() };
+        match cmd {
+            Some(c) => Some(c.join(" ")),
+            None => None,
+        }
+    }
 
     #[async_trait]
     impl ExecPod for GlusterdNode {
@@ -388,6 +396,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_storage() {
+        unsafe { PEER_CMD_LIST.clear() };
         let mut node = GlusterdNode::new("test_node", "ns");
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
@@ -456,6 +465,10 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_wrong_peer() {
+        unsafe {
+            PEER_CMD_LIST.clear();
+            PEER_STDOUT_LIST.clear();
+        };
         let node = GlusterdNode::new("test_node", "ns");
         let pod_api = Api::<Pod>::all(Client::try_default().await.unwrap());
 
