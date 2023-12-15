@@ -349,11 +349,15 @@ mod test {
 
     use kube::Client;
 
-    use crate::storage::{GlusterdStorage, GlusterdStorageSpec, GlusterdStorageTypeSpec};
+    use crate::storage::{
+        GlusterdStorage, GlusterdStorageNodeSpec, GlusterdStorageSpec, GlusterdStorageTypeSpec,
+    };
 
     use super::*;
+    use serial_test::serial;
 
     static mut PEER_STDOUT_LIST: VecDeque<String> = VecDeque::new();
+    static mut PEER_CMD_LIST: VecDeque<Vec<String>> = VecDeque::new();
 
     #[async_trait]
     impl ExecPod for GlusterdNode {
@@ -363,6 +367,11 @@ mod test {
             _pod_api: &Api<Pod>,
         ) -> (Option<String>, Option<String>) {
             let stdout = unsafe { PEER_STDOUT_LIST.pop_front() };
+            let command_string: Vec<String> = command.iter().map(|c| c.to_string()).collect();
+
+            unsafe {
+                PEER_CMD_LIST.push_back(command_string);
+            }
             (stdout, None)
         }
     }
@@ -371,31 +380,81 @@ mod test {
     fn test_new() {
         let node = GlusterdNode::new("test_node", "ns");
 
-        assert_eq!(node.name, "test_node");
+        assert_eq!(node.get_name(), "test_node");
         assert_eq!(node.namespace, "ns");
         assert_eq!(node.storages.len(), 0);
     }
 
-    #[test]
-    fn test_storage() {
+    #[tokio::test]
+    #[serial]
+    async fn test_storage() {
         let mut node = GlusterdNode::new("test_node", "ns");
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
-            nodes: vec![],
+            nodes: vec![GlusterdStorageNodeSpec {
+                name: "test_node".to_string(),
+                path: "/data/brick".to_string(),
+            }],
         };
-        let storage = Arc::new(GlusterdStorage::new("test_storage", storage_spec));
+        let storage_spec2 = GlusterdStorageSpec {
+            r#type: GlusterdStorageTypeSpec::Dispersed,
+            nodes: vec![GlusterdStorageNodeSpec {
+                name: "test_node".to_string(),
+                path: "/data/brick2".to_string(),
+            }],
+        };
+        let storage = Arc::new(GlusterdStorage::new("test_storage", storage_spec.clone()));
+        let storage2 = Arc::new(GlusterdStorage::new("test_storage2", storage_spec2.clone()));
         assert_eq!(node.storages.len(), 0);
 
         node.add_storage(storage.clone());
-
         assert_eq!(node.storages.len(), 1);
+
+        let bricks = node.get_brick_mounts();
+        assert_eq!(bricks[0].0.name, bricks[0].1.name);
+        assert_eq!(
+            bricks[0].0.host_path.clone().unwrap().path,
+            storage_spec.nodes[0].path
+        );
+        assert_eq!(
+            bricks[0].1.mount_path,
+            format!("/bricks/{}", bricks[0].1.name)
+        );
+        node.add_storage(storage2.clone());
+        let bricks = node.get_brick_mounts();
+        assert_eq!(node.storages.len(), 2);
+        assert_eq!(bricks.len(), 2);
+
         assert_eq!(
             node.storages[&storage.get_name()].get_name(),
             storage.get_name()
         );
+
+        let pod_api = Api::<Pod>::all(Client::try_default().await.unwrap());
+        let stdout = r#"
+            ==> /var/lib/glusterd/peers/348b125f-aeef-4393-a182-609ade09c8b1 <==
+            uuid=348b125f-aeef-4393-a182-609ade09c8b1
+            state=3
+            hostname1=glusterd-service-test_probe.ns.svc.cluster.local"#
+            .lines()
+            .map(|line| line.trim_start())
+            .collect::<Vec<_>>()
+            .join("\n");
+        unsafe {
+            PEER_STDOUT_LIST.push_back("".to_string());
+            PEER_STDOUT_LIST.push_back(stdout);
+        }
+        node.probe("test_probe", &pod_api).await;
+        let cmd = unsafe { PEER_CMD_LIST.pop_front().unwrap() };
+        assert_eq!(
+            cmd.join(" "),
+            "gluster peer probe glusterd-service-test_probe.ns"
+        );
+        unsafe { PEER_CMD_LIST.clear() };
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_wrong_peer() {
         let node = GlusterdNode::new("test_node", "ns");
         let pod_api = Api::<Pod>::all(Client::try_default().await.unwrap());
@@ -437,5 +496,8 @@ mod test {
             PEER_STDOUT_LIST.push_back(stdout);
         }
         assert!(node.has_wrong_peer(&pod_api).await);
+        unsafe {
+            PEER_CMD_LIST.clear();
+        }
     }
 }
