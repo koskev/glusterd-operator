@@ -1,18 +1,13 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use k8s_openapi::api::apps::v1::StatefulSet;
-use k8s_openapi::api::core::v1::{Pod, Service, ServicePort, ServiceSpec};
-use kube::api::{DeleteParams, ListParams, Patch, PatchParams, PostParams};
-use kube::core::ObjectMeta;
-use kube::runtime::conditions;
-use kube::runtime::wait::await_condition;
+use k8s_openapi::api::core::v1::{Pod, Service};
+use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Api, Client};
-use regex::Regex;
 
 use crate::node::{ExecPod, GlusterdNode};
 use crate::storage::GlusterdStorage;
-use crate::utils::get_label;
 
 use log::{error, info};
 
