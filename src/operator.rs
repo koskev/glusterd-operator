@@ -7,7 +7,7 @@ use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Api, Client};
 
 use crate::node::{ExecPod, GlusterdNode};
-use crate::storage::GlusterdStorage;
+use crate::storage::{GlusterdStorage, GlusterdStorageTypeSpec};
 
 use log::{error, info};
 
@@ -82,17 +82,26 @@ impl GlusterdOperator {
                             format!("{}:{}", service_name, storage.get_brick_path())
                         })
                         .collect();
-                    let brick_len_str = bricks.len().to_string();
                     let volume_name = storage.get_name();
-                    let mut command = vec![
-                        "gluster",
-                        "volume",
-                        "create",
-                        &volume_name,
-                        // TODO: support more than replica
-                        "replica",
-                        &brick_len_str,
-                    ];
+                    let type_cmd = match storage.spec.r#type {
+                        GlusterdStorageTypeSpec::Replica => {
+                            vec!["replica".to_string(), bricks.len().to_string()]
+                        }
+                        GlusterdStorageTypeSpec::Disperse => {
+                            vec!["disperse".to_string(), bricks.len().to_string()]
+                        }
+                        GlusterdStorageTypeSpec::Arbiter => {
+                            vec![
+                                "replica".to_string(),
+                                (bricks.len() - 1).to_string(),
+                                "arbiter".to_string(),
+                                "1".to_string(),
+                            ]
+                        }
+                    };
+                    let mut command = vec!["gluster", "volume", "create", &volume_name];
+                    let type_cmd_str: Vec<&str> = type_cmd.iter().map(|c| c.as_str()).collect();
+                    command.extend(type_cmd_str);
                     let mut brick_ref: Vec<&str> =
                         bricks.iter().map(|brick| brick.as_str()).collect();
                     command.append(&mut brick_ref);
@@ -242,7 +251,7 @@ mod test {
             GlusterdStorageTypeSpec::Arbiter => {
                 format!("replica {} arbiter 1", storage_spec.nodes.len() - 1)
             }
-            GlusterdStorageTypeSpec::Dispersed => format!("disperse {}", storage_spec.nodes.len()),
+            GlusterdStorageTypeSpec::Disperse => format!("disperse {}", storage_spec.nodes.len()),
         };
 
         let expected_cmd = format!(
@@ -298,6 +307,52 @@ mod test {
     async fn test_replica3() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
+            nodes: vec![
+                GlusterdStorageNodeSpec {
+                    name: "test_node".to_string(),
+                    path: "/data/brick".to_string(),
+                },
+                GlusterdStorageNodeSpec {
+                    name: "test_node2".to_string(),
+                    path: "/data/brick".to_string(),
+                },
+                GlusterdStorageNodeSpec {
+                    name: "test_node3".to_string(),
+                    path: "/data/brick".to_string(),
+                },
+            ],
+        };
+        test_operator(storage_spec).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_arbiter() {
+        let storage_spec = GlusterdStorageSpec {
+            r#type: GlusterdStorageTypeSpec::Arbiter,
+            nodes: vec![
+                GlusterdStorageNodeSpec {
+                    name: "test_node".to_string(),
+                    path: "/data/brick".to_string(),
+                },
+                GlusterdStorageNodeSpec {
+                    name: "test_node2".to_string(),
+                    path: "/data/brick".to_string(),
+                },
+                GlusterdStorageNodeSpec {
+                    name: "test_node3".to_string(),
+                    path: "/data/brick".to_string(),
+                },
+            ],
+        };
+        test_operator(storage_spec).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_dispersed() {
+        let storage_spec = GlusterdStorageSpec {
+            r#type: GlusterdStorageTypeSpec::Disperse,
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),

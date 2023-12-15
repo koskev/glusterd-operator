@@ -406,7 +406,7 @@ pub(crate) mod test {
             }],
         };
         let storage_spec2 = GlusterdStorageSpec {
-            r#type: GlusterdStorageTypeSpec::Dispersed,
+            r#type: GlusterdStorageTypeSpec::Disperse,
             nodes: vec![GlusterdStorageNodeSpec {
                 name: "test_node".to_string(),
                 path: "/data/brick2".to_string(),
