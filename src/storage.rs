@@ -15,6 +15,7 @@ pub struct GlusterdStorageNodeSpec {
 pub enum GlusterdStorageTypeSpec {
     Dispersed,
     Replica,
+    Arbiter,
 }
 
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]

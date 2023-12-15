@@ -237,9 +237,17 @@ mod test {
                 format!("{}:{}", service_name, storage.get_brick_path())
             })
             .collect();
+        let storage_type_string = match storage_spec.r#type {
+            GlusterdStorageTypeSpec::Replica => format!("replica {}", storage_spec.nodes.len()),
+            GlusterdStorageTypeSpec::Arbiter => {
+                format!("replica {} arbiter 1", storage_spec.nodes.len() - 1)
+            }
+            GlusterdStorageTypeSpec::Dispersed => format!("disperse {}", storage_spec.nodes.len()),
+        };
+
         let expected_cmd = format!(
-            "gluster volume create test_storage-default replica {} {} force",
-            storage_spec.nodes.len(),
+            "gluster volume create test_storage-default {} {} force",
+            storage_type_string,
             bricks.join(" ")
         );
         assert_eq!(cmd, expected_cmd);
