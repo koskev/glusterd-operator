@@ -45,61 +45,8 @@ impl GlusterdOperator {
         }
     }
 
-    pub async fn update(&mut self) {
-        // TODO: support changing nodes
-
-        let mut deployments = vec![];
-        let mut services = vec![];
-        let statefulset_api = Api::<StatefulSet>::namespaced(self.client.clone(), &self.namespace);
-        let service_api = Api::<Service>::namespaced(self.client.clone(), &self.namespace);
-        let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-
-        for node in self.nodes.iter() {
-            let stateful_set = node.get_statefulset(&self.namespace);
-            let patch = Patch::Apply(stateful_set.clone());
-            let patch_result = statefulset_api
-                .patch(
-                    &stateful_set.metadata.name.clone().unwrap(),
-                    &PatchParams::apply("glusterd-operator"),
-                    &patch,
-                )
-                .await;
-            match patch_result {
-                Ok(s) => {
-                    deployments.push(s);
-                }
-                Err(e) => {
-                    error!("Unable to patch: {}", e);
-                    error!("Patch: {:#?}", patch);
-                    // TODO: fix error handling
-                    return;
-                }
-            }
-            info!("Deployed {:?}", stateful_set.metadata.name.unwrap());
-            // --- DEPLOYMENT END ---
-
-            // Start service for each node
-            let svc = node.get_service(&self.namespace);
-            // TODO: patch to prevent connection loss
-            let _ = service_api
-                .delete(
-                    &svc.metadata.name.clone().unwrap(),
-                    &DeleteParams::default(),
-                )
-                .await;
-            info!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
-            let s = service_api
-                .create(&PostParams::default(), &svc)
-                .await
-                .unwrap();
-            services.push(s);
-
-            // Wait for all to become ready
-            node.wait_for_pod(&pod_api).await;
-        }
-
-        // Take first node and probe it with every other node
-
+    // Take first node and probe it with every other node
+    async fn probe_nodes(&self, pod_api: &Api<Pod>) {
         let mut first_node: Option<&GlusterdNode> = None;
         for node in &self.nodes {
             match first_node {
@@ -109,25 +56,9 @@ impl GlusterdOperator {
                 None => first_node = Some(node),
             }
         }
+    }
 
-        // Every node is probed now.
-        // It might be possible that some nodes have the weird peer info
-
-        // Check all nodes for weird peers and restart them if needed
-        // The actual correction is done by the container to avoid possible errors with a running
-        // instance
-        for node in &self.nodes {
-            if node.has_wrong_peer(&pod_api).await {
-                node.kill_pod(&pod_api).await;
-                // Wait for pod to go online again
-                // Once it is online we can kill the next node
-                node.wait_for_pod(&pod_api).await;
-            }
-        }
-
-        // Now every node has probed every other node
-        info!("Done probing nodes");
-
+    async fn create_volumes(&self, pod_api: &Api<Pod>) {
         for node in &self.nodes {
             let command = vec!["gluster", "volume", "list"];
             let (output, _) = node.exec_pod(command, &pod_api).await;
@@ -175,5 +106,84 @@ impl GlusterdOperator {
                 }
             }
         }
+    }
+
+    async fn patch_nodes(
+        &self,
+        pod_api: &Api<Pod>,
+        statefulset_api: &Api<StatefulSet>,
+        service_api: &Api<Service>,
+    ) {
+        for node in self.nodes.iter() {
+            let stateful_set = node.get_statefulset(&self.namespace);
+            let patch = Patch::Apply(stateful_set.clone());
+            let patch_result = statefulset_api
+                .patch(
+                    &stateful_set.metadata.name.clone().unwrap(),
+                    &PatchParams::apply("glusterd-operator"),
+                    &patch,
+                )
+                .await;
+            match patch_result {
+                Ok(_s) => {}
+                Err(e) => {
+                    error!("Unable to patch: {}", e);
+                    error!("Patch: {:#?}", patch);
+                    // TODO: fix error handling
+                    return;
+                }
+            }
+            info!("Deployed {:?}", stateful_set.metadata.name.unwrap());
+            // --- DEPLOYMENT END ---
+
+            // Start service for each node
+            let svc = node.get_service(&self.namespace);
+            // TODO: patch to prevent connection loss
+            let _ = service_api
+                .delete(
+                    &svc.metadata.name.clone().unwrap(),
+                    &DeleteParams::default(),
+                )
+                .await;
+            info!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
+            let _s = service_api
+                .create(&PostParams::default(), &svc)
+                .await
+                .unwrap();
+
+            // Wait for all to become ready
+            node.wait_for_pod(&pod_api).await;
+        }
+    }
+
+    pub async fn update(&mut self) {
+        // TODO: support changing nodes
+
+        let statefulset_api = Api::<StatefulSet>::namespaced(self.client.clone(), &self.namespace);
+        let service_api = Api::<Service>::namespaced(self.client.clone(), &self.namespace);
+        let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
+
+        self.patch_nodes(&pod_api, &statefulset_api, &service_api)
+            .await;
+        self.probe_nodes(&pod_api).await;
+
+        // Every node is probed now.
+        // It might be possible that some nodes have the weird peer info
+
+        // Check all nodes for weird peers and restart them if needed
+        // The actual correction is done by the container to avoid possible errors with a running
+        // instance
+        for node in &self.nodes {
+            if node.has_wrong_peer(&pod_api).await {
+                node.kill_pod(&pod_api).await;
+                // Wait for pod to go online again
+                // Once it is online we can kill the next node
+                node.wait_for_pod(&pod_api).await;
+            }
+        }
+
+        // Now every node has probed every other node
+        info!("Done probing nodes");
+        self.create_volumes(&pod_api).await;
     }
 }
