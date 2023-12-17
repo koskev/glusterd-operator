@@ -20,8 +20,6 @@ spec:
         properties:
           spec:
             properties:
-              name:
-                type: string
               nodes:
                 items:
                   properties:
@@ -36,11 +34,11 @@ spec:
                 type: array
               type:
                 enum:
-                - Dispersed
+                - Disperse
                 - Replica
+                - Arbiter
                 type: string
             required:
-            - name
             - nodes
             - type
             type: object

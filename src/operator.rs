@@ -283,7 +283,6 @@ mod test {
         unsafe {
             PEER_STDOUT_LIST.push_back("test_storage-default".to_string());
         }
-        println!("=============");
         operator.create_volumes(&pod_api).await;
 
         // One list for every storage node
