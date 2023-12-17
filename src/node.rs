@@ -245,6 +245,20 @@ impl GlusterdNode {
         }
     }
 
+    pub async fn get_peer_num(&self, pod_api: &Api<Pod>) -> usize {
+        let cmd = vec!["gluster", "pool", "list"];
+        let (stdout, _stderr) = self.exec_pod(cmd, pod_api).await;
+        let size;
+        match stdout {
+            Some(out) => {
+                let lines: Vec<&str> = out.split("\n").collect();
+                size = lines.len() - 2; // remove header and self
+            }
+            None => size = 0,
+        }
+        size
+    }
+
     pub async fn kill_pod(&self, pod_api: &Api<Pod>) {
         let pod_name = self.get_pod_name(pod_api).await.unwrap();
         let _ = pod_api.delete(&pod_name, &DeleteParams::default()).await;

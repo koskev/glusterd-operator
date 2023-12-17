@@ -47,13 +47,25 @@ impl GlusterdOperator {
 
     // Take first node and probe it with every other node
     async fn probe_nodes(&self, pod_api: &Api<Pod>) {
-        let mut first_node: Option<&GlusterdNode> = None;
+        let mut cluster_node: Option<&GlusterdNode> = None;
         for node in &self.nodes {
-            match first_node {
-                Some(first_node) => {
-                    first_node.probe(&node.name, &pod_api).await;
-                }
-                None => first_node = Some(node),
+            if cluster_node.is_none() {
+                // Set to a value in case we don't have a cluster yet
+                cluster_node = Some(node);
+            }
+            // Use the first node part of the cluster.
+            // XXX: We assume we have no split cluster
+            if node.get_peer_num(pod_api).await > 0 {
+                cluster_node = Some(node);
+                break;
+            }
+        }
+        for node in &self.nodes {
+            if node.get_name() != cluster_node.unwrap().get_name() {
+                cluster_node
+                    .unwrap()
+                    .probe(&node.get_name(), &pod_api)
+                    .await;
             }
         }
     }
@@ -194,6 +206,7 @@ impl GlusterdOperator {
 
         // Now every node has probed every other node
         info!("Done probing nodes");
+        // TODO: Even if A -> B Probe is successfull. B -> A Might be pending!
         self.create_volumes(&pod_api).await;
     }
 }
