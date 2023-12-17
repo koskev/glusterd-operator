@@ -36,15 +36,11 @@ impl GlusterdStorage {
     }
 
     pub fn get_name(&self) -> String {
-        format!(
-            "{}-{}",
-            self.metadata.name.clone().unwrap(),
-            self.get_namespace()
-        )
+        format!("{}", self.metadata.name.clone().unwrap())
     }
 
     pub fn get_brick_path(&self) -> String {
-        format!("/bricks/{}", self.get_name())
+        format!("/bricks/{}/{}", self.get_namespace(), self.get_name())
     }
 
     fn get_id(&self, node_name: &str) -> String {
