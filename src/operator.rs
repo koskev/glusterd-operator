@@ -71,6 +71,14 @@ impl GlusterdOperator {
     }
 
     async fn create_volumes(&self, pod_api: &Api<Pod>) {
+        // Create dirs on all nodes as gluster won't do that
+        for node in &self.nodes {
+            for (_name, storage) in &node.storages {
+                let brick_path = storage.get_brick_path();
+                let mkdir_cmd = vec!["mkdir", "-p", &brick_path];
+                node.exec_pod(mkdir_cmd, pod_api).await;
+            }
+        }
         let mut existing_volumes = HashSet::new();
         for node in &self.nodes {
             let command = vec!["gluster", "volume", "list"];
