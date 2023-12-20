@@ -16,6 +16,7 @@ pub enum GlusterdStorageTypeSpec {
     Disperse,
     Replica,
     Arbiter,
+    Distribute,
 }
 
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]

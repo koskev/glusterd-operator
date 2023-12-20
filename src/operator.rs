@@ -225,6 +225,9 @@ impl GlusterdOperator {
                                 "1".to_string(),
                             ]
                         }
+                        GlusterdStorageTypeSpec::Distribute => {
+                            vec![]
+                        }
                     };
                     let mut command = vec!["gluster", "volume", "create", &volume_name];
                     let type_cmd_str: Vec<&str> = type_cmd.iter().map(|c| c.as_str()).collect();
