@@ -294,9 +294,11 @@ impl GlusterdNode {
         match pod_list {
             Ok(pod_list) => {
                 // XXX: Assumes we only have one pod
-                let pod = pod_list.items.first().unwrap();
-
-                return pod.metadata.name.clone();
+                let pod = pod_list.items.first();
+                match pod {
+                    Some(pod) => return pod.metadata.name.clone(),
+                    None => return None,
+                }
             }
             Err(_e) => return None,
         }
