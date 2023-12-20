@@ -214,7 +214,11 @@ impl GlusterdNode {
         let service_name = format!("glusterd-service-{}.{}", peer, self.namespace);
         info!("Executing for with service {}", service_name);
         let command = vec!["gluster", "peer", "probe", &service_name];
-        self.exec_pod(command, &pod_api).await;
+        let (_stdout, stderr) = self.exec_pod(command, &pod_api).await;
+        if stderr.is_some() {
+            error!("Failed to probe {}: {}", service_name, stderr.unwrap());
+            return;
+        }
         // TODO: wait for state == 3
         let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
         let mut connected = false;
