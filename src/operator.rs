@@ -1,9 +1,14 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use k8s_openapi::api::apps::v1::StatefulSet;
-use k8s_openapi::api::core::v1::{Pod, Service};
+use k8s_openapi::api::apps::v1::{DaemonSet, DaemonSetSpec, StatefulSet};
+use k8s_openapi::api::core::v1::{
+    Capabilities, Container, HostPathVolumeSource, Pod, PodSecurityContext, PodSpec,
+    PodTemplateSpec, SecurityContext, Service, Volume, VolumeMount,
+};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
+use kube::core::ObjectMeta;
 use kube::{Api, Client};
 
 use crate::node::{ExecPod, GlusterdNode};
@@ -24,6 +29,108 @@ impl GlusterdOperator {
             namespace: namespace.to_string(),
             nodes: vec![],
         }
+    }
+
+    fn get_storages(&self) -> HashMap<String, Arc<GlusterdStorage>> {
+        let mut storages: HashMap<String, Arc<GlusterdStorage>> = HashMap::new();
+        for node in self.nodes.iter() {
+            for (name, storage) in node.storages.iter() {
+                storages.insert(name.clone(), storage.clone());
+            }
+        }
+        storages
+    }
+
+    fn get_client_mount_daemonset(&self) -> Vec<DaemonSet> {
+        let mut daemonsets = vec![];
+        for (_, storage) in self.get_storages() {
+            let server = format!(
+                "glusterd-service-{}.{}",
+                storage.spec.nodes.first().unwrap().name.clone(),
+                storage.get_namespace()
+            );
+            let volume_name = storage.metadata.name.clone().unwrap();
+            let mount_point = format!("/mnt/glusterfs/{}/{}", self.namespace, volume_name);
+            let name = format!("glusterfs-mount-{}", storage.get_name());
+            let label = BTreeMap::from([("app".to_string(), name.clone())]);
+            let ds = DaemonSet {
+                metadata: ObjectMeta {
+                    name: Some(name),
+                    namespace: Some(self.namespace.clone()),
+                    labels: Some(label.clone()),
+                    ..Default::default()
+                },
+                spec: Some(DaemonSetSpec {
+                    selector: LabelSelector {
+                        match_labels: Some(label.clone()),
+                        ..Default::default()
+                    },
+                    template: PodTemplateSpec {
+                        metadata: Some(ObjectMeta {
+                            labels: Some(label.clone()),
+                            ..Default::default()
+                        }),
+                        spec: Some(PodSpec {
+                            containers: vec![Container {
+                                name: "glusterfs-client".to_string(),
+                                image: Some(
+                                    "ghcr.io/koskev/glusterfs-image:2023.12.20".to_string(),
+                                ),
+                                image_pull_policy: Some("Always".to_string()),
+                                args: Some(vec![server, volume_name, mount_point]),
+                                security_context: Some(SecurityContext {
+                                    // Needed for fuse
+                                    privileged: Some(true),
+                                    capabilities: Some(Capabilities {
+                                        add: Some(vec!["SYS_ADMIN".to_string()]),
+                                        ..Default::default()
+                                    }),
+
+                                    ..Default::default()
+                                }),
+                                volume_mounts: Some(vec![
+                                    VolumeMount {
+                                        name: "fuse".to_string(),
+                                        mount_path: "/dev/fuse".to_string(),
+                                        ..Default::default()
+                                    },
+                                    VolumeMount {
+                                        name: "gluster".to_string(),
+                                        mount_path: "/mnt/glusterfs".to_string(),
+                                        mount_propagation: Some("Bidirectional".to_string()),
+                                        ..Default::default()
+                                    },
+                                ]),
+                                ..Default::default()
+                            }],
+                            volumes: Some(vec![
+                                Volume {
+                                    name: "fuse".to_string(),
+                                    host_path: Some(HostPathVolumeSource {
+                                        path: "/dev/fuse".to_string(),
+                                        ..Default::default()
+                                    }),
+                                    ..Default::default()
+                                },
+                                Volume {
+                                    name: "gluster".to_string(),
+                                    host_path: Some(HostPathVolumeSource {
+                                        path: "/mnt/glusterfs".to_string(),
+                                        ..Default::default()
+                                    }),
+                                    ..Default::default()
+                                },
+                            ]),
+                            ..Default::default()
+                        }),
+                    },
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            daemonsets.push(ds);
+        }
+        daemonsets
     }
 
     pub fn add_storage(&mut self, storage: GlusterdStorage) {
@@ -186,16 +293,41 @@ impl GlusterdOperator {
         }
     }
 
+    async fn deploy_mount_clients(&self, daemonset_api: &Api<DaemonSet>) {
+        let sets = self.get_client_mount_daemonset();
+        for set in sets.iter() {
+            let patch = Patch::Apply(set.clone());
+            let patch_result = daemonset_api
+                .patch(
+                    &set.metadata.name.clone().unwrap(),
+                    &PatchParams::apply("glusterd-operator"),
+                    &patch,
+                )
+                .await;
+            match patch_result {
+                Ok(_s) => {}
+                Err(e) => {
+                    error!("Unable to patch: {}", e);
+                    error!("Patch: {:#?}", patch);
+                    // TODO: fix error handling
+                    return;
+                }
+            }
+        }
+    }
+
     pub async fn update(&mut self) {
         // TODO: support changing nodes
 
         let statefulset_api = Api::<StatefulSet>::namespaced(self.client.clone(), &self.namespace);
         let service_api = Api::<Service>::namespaced(self.client.clone(), &self.namespace);
         let pod_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
+        let daemonset_api: Api<DaemonSet> = Api::namespaced(self.client.clone(), &self.namespace);
 
         self.patch_nodes(&pod_api, &statefulset_api, &service_api)
             .await;
         self.probe_nodes(&pod_api).await;
+        self.deploy_mount_clients(&daemonset_api).await;
 
         // Every node is probed now.
         // It might be possible that some nodes have the weird peer info
