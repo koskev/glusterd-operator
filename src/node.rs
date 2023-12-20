@@ -21,6 +21,7 @@ use regex::Regex;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
+    time::Duration,
 };
 
 use crate::{storage::GlusterdStorage, utils::get_label};
@@ -305,6 +306,9 @@ impl GlusterdNode {
     }
 
     pub async fn wait_for_pod(&self, pod_api: &Api<Pod>) {
+        while self.get_pod_name(pod_api).await.is_none() {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
         let pod_name = self.get_pod_name(pod_api).await.unwrap();
         info!("Awaiting {}", pod_name);
         await_condition(pod_api.clone(), &pod_name, conditions::is_pod_running())
