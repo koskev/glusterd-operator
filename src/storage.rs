@@ -1,5 +1,5 @@
-use kube::ResourceExt;
-use std::collections::HashSet;
+use kube::{core::ObjectMeta, ResourceExt};
+use std::{collections::HashSet, default};
 
 use kube::CustomResource;
 use schemars::JsonSchema;
@@ -11,15 +11,16 @@ pub struct GlusterdStorageNodeSpec {
     pub path: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, Default)]
 pub enum GlusterdStorageTypeSpec {
     Disperse,
     Replica,
     Arbiter,
+    #[default]
     Distribute,
 }
 
-#[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema, Default)]
 #[kube(
     group = "glusterd-operator.storage",
     version = "v1",
@@ -28,10 +29,21 @@ pub enum GlusterdStorageTypeSpec {
 )]
 pub struct GlusterdStorageSpec {
     pub r#type: GlusterdStorageTypeSpec,
+    pub options: Vec<String>,
     pub nodes: Vec<GlusterdStorageNodeSpec>,
 }
 
 impl GlusterdStorage {
+    pub fn new_namespaced(name: &str, namespace: &str, spec: GlusterdStorageSpec) -> Self {
+        Self {
+            metadata: ObjectMeta {
+                name: Some(name.to_string()),
+                namespace: Some(namespace.to_string()),
+                ..Default::default()
+            },
+            spec,
+        }
+    }
     pub fn get_namespace(&self) -> String {
         self.namespace().unwrap_or("default".to_string())
     }

@@ -375,10 +375,12 @@ mod test {
             PEER_CMD_LIST.clear();
             PEER_STDOUT_LIST.clear();
         };
-        let mut operator = GlusterdOperator::new(Client::try_default().await.unwrap(), "ns");
+        let namespace = "ns";
+        let mut operator = GlusterdOperator::new(Client::try_default().await.unwrap(), namespace);
         let pod_api = Api::<Pod>::all(operator.client.clone());
 
-        let storage = GlusterdStorage::new("test_storage", storage_spec.clone());
+        let storage =
+            GlusterdStorage::new_namespaced("test_storage", namespace, storage_spec.clone());
         assert_eq!(operator.nodes.len(), 0);
         operator.add_storage(storage.clone());
 
@@ -387,18 +389,30 @@ mod test {
 
         operator.create_volumes(&pod_api).await;
 
+        let expected_command_num = 3 + // list, create, start
+            storage_spec.nodes.len() * 2 // len * mkdir + len - 1 * list
+            - 1;
+
         //Remove gluster list cmd
         unsafe {
             // list, create, start, list for every extra node
-            assert_eq!(PEER_CMD_LIST.len(), 3 + storage_spec.nodes.len() - 1);
-            PEER_CMD_LIST.pop_front();
+            assert_eq!(PEER_CMD_LIST.len(), expected_command_num);
+            for _ in 0..storage_spec.nodes.len() {
+                let cmd = get_last_cmd().unwrap();
+                assert_eq!(
+                    cmd,
+                    format!("mkdir -p /bricks/{}/{}", namespace, "test_storage")
+                );
+            }
+            let cmd = get_last_cmd().unwrap();
+            assert_eq!(cmd, "gluster volume list");
         }
         let cmd = get_last_cmd().unwrap();
         let bricks: Vec<String> = storage_spec
             .nodes
             .iter()
             .map(|n| {
-                let service_name = format!("glusterd-service-{}.ns", n.name);
+                let service_name = format!("glusterd-service-{}.{}", n.name, namespace);
                 format!("{}:{}", service_name, storage.get_brick_path())
             })
             .collect();
@@ -408,25 +422,41 @@ mod test {
                 format!("replica {} arbiter 1", storage_spec.nodes.len() - 1)
             }
             GlusterdStorageTypeSpec::Disperse => format!("disperse {}", storage_spec.nodes.len()),
+            GlusterdStorageTypeSpec::Distribute => "".to_string(),
         };
 
         let expected_cmd = format!(
-            "gluster volume create test_storage-default {} {} force",
+            "gluster volume create test_storage {} {} force",
             storage_type_string,
             bricks.join(" ")
         );
         assert_eq!(cmd, expected_cmd);
         let cmd = get_last_cmd().unwrap();
-        assert_eq!(cmd, "gluster volume start test_storage-default");
+        assert_eq!(cmd, "gluster volume start test_storage");
         unsafe {
             assert_eq!(PEER_CMD_LIST.len(), storage_spec.nodes.len() - 1);
             PEER_CMD_LIST.clear();
         }
 
         unsafe {
-            PEER_STDOUT_LIST.push_back("test_storage-default".to_string());
+            for _ in storage_spec.nodes.iter() {
+                // For the mkdir command
+                PEER_STDOUT_LIST.push_back("".to_string());
+            }
+            PEER_STDOUT_LIST.push_back("test_storage".to_string());
         }
+
+        // Create the volumes again. We should only have volume list commands
         operator.create_volumes(&pod_api).await;
+
+        // One mkdir per node
+        for _ in storage_spec.nodes.iter() {
+            let cmd = get_last_cmd().unwrap();
+            assert_eq!(
+                cmd,
+                format!("mkdir -p /bricks/{}/{}", namespace, "test_storage")
+            );
+        }
 
         // One list for every storage node
         for _ in storage_spec.nodes.iter() {
@@ -442,6 +472,7 @@ mod test {
     async fn test_replica2() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
+            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -462,6 +493,7 @@ mod test {
     async fn test_replica3() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
+            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -485,6 +517,7 @@ mod test {
     async fn test_arbiter() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Arbiter,
+            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -508,6 +541,7 @@ mod test {
     async fn test_dispersed() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Disperse,
+            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),

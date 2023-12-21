@@ -3,12 +3,13 @@ apiVersion: glusterd-operator.storage/v1
 kind: GlusterdStorage
 metadata:
   # This will be used as name of PV Hosting Volume
-  name: storage-pool-2
+  name: ssd-storage
 spec:
-  name: gv1
-  type: Replica
+  type: Arbiter
   nodes:
-    - name: raspberrypi-server
-      path: "/tmp/test2"
+    - name: kevin-laptop
+      path: "/data/glusterfs/ssd-storage"
     - name: rpi-server2
-      path: "/tmp/test2"
+      path: "/data/glusterfs/ssd-storage"
+    - name: raspberrypi-server
+      path: "/data/glusterfs/ssd-storage-arbiter"

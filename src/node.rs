@@ -421,13 +421,15 @@ pub(crate) mod test {
     #[serial]
     async fn test_storage() {
         unsafe { PEER_CMD_LIST.clear() };
-        let mut node = GlusterdNode::new("test_node", "ns");
+        let namespace = "ns";
+        let mut node = GlusterdNode::new("test_node", namespace);
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
             nodes: vec![GlusterdStorageNodeSpec {
                 name: "test_node".to_string(),
                 path: "/data/brick".to_string(),
             }],
+            ..Default::default()
         };
         let storage_spec2 = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Disperse,
@@ -435,9 +437,21 @@ pub(crate) mod test {
                 name: "test_node".to_string(),
                 path: "/data/brick2".to_string(),
             }],
+            ..Default::default()
         };
-        let storage = Arc::new(GlusterdStorage::new("test_storage", storage_spec.clone()));
-        let storage2 = Arc::new(GlusterdStorage::new("test_storage2", storage_spec2.clone()));
+        let storage = Arc::new(GlusterdStorage::new_namespaced(
+            "test_storage",
+            namespace,
+            storage_spec.clone(),
+        ));
+        let storage2 = Arc::new(GlusterdStorage::new_namespaced(
+            "test_storage2",
+            namespace,
+            storage_spec2.clone(),
+        ));
+        assert_eq!(storage.get_name(), "test_storage");
+        assert_eq!(storage.get_namespace(), namespace);
+
         assert_eq!(node.storages.len(), 0);
 
         node.add_storage(storage.clone());
@@ -451,7 +465,7 @@ pub(crate) mod test {
         );
         assert_eq!(
             bricks[0].1.mount_path,
-            format!("/bricks/{}", bricks[0].1.name)
+            format!("/bricks/{}/{}", node.namespace, bricks[0].1.name)
         );
         node.add_storage(storage2.clone());
         let bricks = node.get_brick_mounts();
