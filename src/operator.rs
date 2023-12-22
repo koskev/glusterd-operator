@@ -196,6 +196,7 @@ impl GlusterdOperator {
                 });
             }
             for (name, storage) in &node.storages {
+                let volume_name = storage.get_name();
                 // Volume does not exist yet
                 if !existing_volumes.contains(name) {
                     // Create volume
@@ -209,7 +210,6 @@ impl GlusterdOperator {
                             format!("{}:{}", service_name, storage.get_brick_path())
                         })
                         .collect();
-                    let volume_name = storage.get_name();
                     let type_cmd = match storage.spec.r#type {
                         GlusterdStorageTypeSpec::Replica => {
                             vec!["replica".to_string(), bricks.len().to_string()]
@@ -244,8 +244,22 @@ impl GlusterdOperator {
                     // Add to existing volumes
                     existing_volumes.insert(name.clone());
                 }
+                // Apply options for all storages (even existing ones)
+                match &storage.spec.options {
+                    Some(options) => {
+                        for option in options.iter() {
+                            let mut option_vec = option.split(" ").collect();
+                            let mut command = vec!["gluster", "volume", &volume_name, "set"];
+                            // XXX: This allows a user which can add a storage to run any command in the node
+                            command.append(&mut option_vec);
+                            node.exec_pod(command, &pod_api).await;
+                        }
+                    }
+                    None => (),
+                }
             }
         }
+        // TODO: handle changed nodes
     }
 
     async fn patch_nodes(
