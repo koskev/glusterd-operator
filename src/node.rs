@@ -29,6 +29,21 @@ use crate::{storage::GlusterdStorage, utils::get_label};
 #[cfg(test)]
 use mockall::{automock, mock, predicate::*};
 
+#[derive(Default, Debug)]
+pub struct GlusterPeer {
+    uuid: String,
+    state: i32,
+    hostnames: Vec<String>,
+}
+
+impl GlusterPeer {
+    pub fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+}
+
 fn create_volume(name: &str, mount_path: &str, host_path: &str) -> (Volume, VolumeMount) {
     let volume_mount = VolumeMount {
         mount_path: mount_path.to_string(),
@@ -220,48 +235,63 @@ impl GlusterdNode {
             error!("Failed to probe {}: {}", service_name, stderr.unwrap());
             return;
         }
-        // TODO: wait for state == 3
-        let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
         let mut connected = false;
         info!("Waiting for connection to be established");
-        // Waiting for the correct file to have "state=3"
-        let pattern = r"(?m)^state=(.*)$";
-        let regex = Regex::new(pattern).unwrap();
+        // Waiting for the correct peer to have "state=3"
         while !connected {
-            let (stdout, _err) = self.exec_pod(command.clone(), &pod_api).await;
-            match stdout {
-                Some(output) => {
-                    info!("Checking if line contains {}", service_name);
-                    if let Some(found_line) =
-                        output.split("\n\n").find(|s| s.contains(&service_name))
-                    {
-                        info!("Got service name, checking regex");
-                        if let Some(c) = regex.captures(found_line) {
-                            info!("Found regex");
-                            if let Some(g) = c.get(1) {
-                                info!("State is {}", g.as_str());
-                                connected = g.as_str() == "3";
-                            }
-                        }
-                    }
+            let peers = self.get_peer_list(pod_api).await;
+            for peer in peers {
+                if peer
+                    .hostnames
+                    .iter()
+                    .find(|h| h.contains(&service_name))
+                    .is_some()
+                {
+                    connected = peer.state == 3;
+                    break;
                 }
-                None => (),
             }
         }
     }
 
-    pub async fn get_peer_num(&self, pod_api: &Api<Pod>) -> usize {
-        let cmd = vec!["gluster", "pool", "list"];
+    pub async fn get_peer_list(&self, pod_api: &Api<Pod>) -> Vec<GlusterPeer> {
+        let cmd = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
         let (stdout, _stderr) = self.exec_pod(cmd, pod_api).await;
-        let size;
+        let mut peer_list: Vec<GlusterPeer> = vec![];
         match stdout {
             Some(out) => {
-                let lines: Vec<&str> = out.split("\n").collect();
-                size = lines.len() - 2; // remove header and self
+                let blocks: Vec<&str> = out.split("\n\n").collect();
+
+                for block in blocks {
+                    let mut peer = GlusterPeer::new();
+                    let lines: Vec<&str> = block.split("\n").collect();
+
+                    for line in lines {
+                        info!("{}", line);
+                        let key_val = line.split_once("=");
+                        match key_val {
+                            Some((key, val)) => {
+                                if key == "uuid" {
+                                    peer.uuid = val.to_string();
+                                } else if key == "state" {
+                                    peer.state = val.parse().unwrap();
+                                } else if key.contains("hostname") {
+                                    peer.hostnames.push(val.to_string());
+                                }
+                            }
+                            None => (),
+                        }
+                    }
+                    peer_list.push(peer);
+                }
             }
-            None => size = 0,
+            None => (),
         }
-        size
+        peer_list
+    }
+
+    pub async fn get_peer_num(&self, pod_api: &Api<Pod>) -> usize {
+        self.get_peer_list(&pod_api).await.len()
     }
 
     pub async fn kill_pod(&self, pod_api: &Api<Pod>) {
