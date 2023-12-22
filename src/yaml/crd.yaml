@@ -32,14 +32,20 @@ spec:
                   - path
                   type: object
                 type: array
+              options:
+                items:
+                  type: string
+                type: array
               type:
                 enum:
                 - Disperse
                 - Replica
                 - Arbiter
+                - Distribute
                 type: string
             required:
             - nodes
+            - options
             - type
             type: object
         required:

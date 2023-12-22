@@ -472,7 +472,6 @@ mod test {
     async fn test_replica2() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
-            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -483,6 +482,7 @@ mod test {
                     path: "/data/brick".to_string(),
                 },
             ],
+            ..Default::default()
         };
 
         test_operator(storage_spec).await;
@@ -493,7 +493,6 @@ mod test {
     async fn test_replica3() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Replica,
-            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -508,6 +507,7 @@ mod test {
                     path: "/data/brick".to_string(),
                 },
             ],
+            ..Default::default()
         };
         test_operator(storage_spec).await;
     }
@@ -517,7 +517,6 @@ mod test {
     async fn test_arbiter() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Arbiter,
-            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -532,6 +531,7 @@ mod test {
                     path: "/data/brick".to_string(),
                 },
             ],
+            ..Default::default()
         };
         test_operator(storage_spec).await;
     }
@@ -541,7 +541,6 @@ mod test {
     async fn test_dispersed() {
         let storage_spec = GlusterdStorageSpec {
             r#type: GlusterdStorageTypeSpec::Disperse,
-            options: vec![],
             nodes: vec![
                 GlusterdStorageNodeSpec {
                     name: "test_node".to_string(),
@@ -556,6 +555,7 @@ mod test {
                     path: "/data/brick".to_string(),
                 },
             ],
+            ..Default::default()
         };
         test_operator(storage_spec).await;
     }

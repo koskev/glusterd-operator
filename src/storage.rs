@@ -29,7 +29,7 @@ pub enum GlusterdStorageTypeSpec {
 )]
 pub struct GlusterdStorageSpec {
     pub r#type: GlusterdStorageTypeSpec,
-    pub options: Vec<String>,
+    pub options: Option<Vec<String>>,
     pub nodes: Vec<GlusterdStorageNodeSpec>,
 }
 
