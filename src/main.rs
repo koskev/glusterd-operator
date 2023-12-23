@@ -1,10 +1,10 @@
 use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 
-use futures::{pin_mut, StreamExt, TryStreamExt};
+use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::Api,
-    runtime::{controller::Action, watcher, Controller, WatchStreamExt},
+    runtime::{controller::Action, watcher, Controller},
     Client, CustomResourceExt, Resource, ResourceExt,
 };
 
@@ -30,10 +30,6 @@ struct Context {
 pub enum MyError {}
 
 pub type Result<T, E = MyError> = std::result::Result<T, E>;
-
-fn handle_glusterdstorage_event(event: GlusterdStorage) {
-    info!("New GlusterdStorage with spec {:?}", event.spec)
-}
 
 async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Action> {
     info!("reconcile request: {}", obj.name_any());
@@ -87,11 +83,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let client = Client::try_default().await?;
     let glusterd_storages: Api<GlusterdStorage> = Api::all(client.clone());
-    let config = watcher::Config::default();
-
-    let stream = watcher(glusterd_storages.clone(), config)
-        .default_backoff()
-        .applied_objects();
 
     let context = Context {
         client: client.clone(),
@@ -106,11 +97,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .run(reconcile, error_policy, Arc::new(context))
         .for_each(|_| futures::future::ready(()))
         .await;
-
-    pin_mut!(stream);
-    while let Some(event) = stream.try_next().await? {
-        handle_glusterdstorage_event(event);
-    }
 
     Ok(())
 }
