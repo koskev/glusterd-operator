@@ -26,6 +26,37 @@ struct Context {
     operators: Arc<RwLock<HashMap<String, Arc<RwLock<GlusterdOperator>>>>>,
 }
 
+impl Context {
+    async fn new() -> Self {
+        Self {
+            client: Client::try_default().await.unwrap(),
+            operators: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    async fn get_operator(&self, namespace: &str) -> Arc<RwLock<GlusterdOperator>> {
+        let namespace = namespace.to_string();
+        let operator;
+        let mut operator_lock = self.operators.write().await;
+        let operator_opt = operator_lock.get(&namespace);
+        match operator_opt {
+            Some(o) => operator = o,
+            None => {
+                operator_lock.insert(
+                    namespace.clone(),
+                    Arc::new(RwLock::new(GlusterdOperator::new(
+                        self.client.clone(),
+                        &namespace,
+                    ))),
+                );
+
+                operator = operator_lock.get(&namespace).unwrap();
+            }
+        }
+        operator.clone()
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum MyError {}
 
@@ -38,23 +69,7 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Actio
         return Ok(Action::requeue(Duration::from_secs(3600)));
     }
     let namespace = obj.get_namespace();
-    let operator;
-    let mut operator_lock = ctx.operators.write().await;
-    let operator_opt = operator_lock.get(&namespace);
-    match operator_opt {
-        Some(o) => operator = o,
-        None => {
-            operator_lock.insert(
-                namespace.clone(),
-                Arc::new(RwLock::new(GlusterdOperator::new(
-                    ctx.client.clone(),
-                    &namespace,
-                ))),
-            );
-
-            operator = operator_lock.get(&namespace).unwrap();
-        }
-    }
+    let operator = ctx.get_operator(&namespace).await;
 
     operator.write().await.add_storage(obj.as_ref().clone());
     operator.write().await.update().await;
@@ -75,23 +90,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ColorChoice::Auto,
     )
     .unwrap();
+
     info!("kind = {}", GlusterdStorage::kind(&())); // impl kube::Resource
     info!(
         "crd: {}",
         serde_yaml::to_string(&GlusterdStorage::crd()).unwrap()
     ); // crd yaml
 
-    let client = Client::try_default().await?;
-    let glusterd_storages: Api<GlusterdStorage> = Api::all(client.clone());
-
-    let context = Context {
-        client: client.clone(),
-        operators: Arc::new(RwLock::new(HashMap::new())),
-    };
+    let context = Context::new().await;
+    let glusterd_storages: Api<GlusterdStorage> = Api::all(context.client.clone());
 
     Controller::new(glusterd_storages.clone(), Default::default())
         .owns(
-            Api::<Deployment>::all(client.clone()),
+            Api::<Deployment>::all(context.client.clone()),
             watcher::Config::default(),
         )
         .run(reconcile, error_policy, Arc::new(context))
