@@ -14,7 +14,7 @@ use kube::{Api, Client};
 use crate::node::{ExecPod, GlusterdNode};
 use crate::storage::{GlusterdStorage, GlusterdStorageTypeSpec};
 
-use log::{error, info};
+use log::{error, info, warn};
 
 pub struct GlusterdOperator {
     client: Client,
@@ -269,44 +269,7 @@ impl GlusterdOperator {
         service_api: &Api<Service>,
     ) {
         for node in self.nodes.iter() {
-            let stateful_set = node.get_statefulset(&self.namespace);
-            let patch = Patch::Apply(stateful_set.clone());
-            let patch_result = statefulset_api
-                .patch(
-                    &stateful_set.metadata.name.clone().unwrap(),
-                    &PatchParams::apply("glusterd-operator"),
-                    &patch,
-                )
-                .await;
-            match patch_result {
-                Ok(_s) => {}
-                Err(e) => {
-                    error!("Unable to patch: {}", e);
-                    error!("Patch: {:#?}", patch);
-                    // TODO: fix error handling
-                    return;
-                }
-            }
-            info!("Deployed {:?}", stateful_set.metadata.name.unwrap());
-            // --- DEPLOYMENT END ---
-
-            // Start service for each node
-            let svc = node.get_service(&self.namespace);
-            // TODO: patch to prevent connection loss
-            let _ = service_api
-                .delete(
-                    &svc.metadata.name.clone().unwrap(),
-                    &DeleteParams::default(),
-                )
-                .await;
-            info!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
-            let _s = service_api
-                .create(&PostParams::default(), &svc)
-                .await
-                .unwrap();
-
-            // Wait for all to become ready
-            node.wait_for_pod(&pod_api).await;
+            node.patch_node(statefulset_api, pod_api, service_api).await;
         }
     }
 
