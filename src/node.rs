@@ -31,9 +31,9 @@ use mockall::{automock, mock, predicate::*};
 
 #[derive(Default, Debug)]
 pub struct GlusterPeer {
-    uuid: String,
-    state: i32,
-    hostnames: Vec<String>,
+    pub uuid: String,
+    pub state: i32,
+    pub hostnames: Vec<String>,
 }
 
 impl GlusterPeer {
@@ -388,9 +388,6 @@ impl GlusterdNode {
             .create(&PostParams::default(), &svc)
             .await
             .unwrap();
-
-        // Wait for all to become ready
-        self.wait_for_pod(&pod_api).await;
     }
 }
 

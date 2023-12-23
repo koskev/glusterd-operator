@@ -11,7 +11,7 @@ use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
 use kube::core::ObjectMeta;
 use kube::{Api, Client};
 
-use crate::node::{ExecPod, GlusterdNode};
+use crate::node::{ExecPod, GlusterPeer, GlusterdNode};
 use crate::storage::{GlusterdStorage, GlusterdStorageTypeSpec};
 
 use log::{error, info, warn};
@@ -269,7 +269,25 @@ impl GlusterdOperator {
         service_api: &Api<Service>,
     ) {
         for node in self.nodes.iter() {
+            let connections = node
+                .get_peer_list(pod_api)
+                .await
+                .iter()
+                .filter(|p| p.state == 3)
+                .count();
             node.patch_node(statefulset_api, pod_api, service_api).await;
+            node.wait_for_pod(pod_api).await;
+
+            let mut connections_now = 0;
+            // Wait for the connections to be the same as before the patch
+            while connections != connections_now {
+                connections_now = node
+                    .get_peer_list(pod_api)
+                    .await
+                    .into_iter()
+                    .filter(|p| p.state == 3)
+                    .count();
+            }
         }
     }
 
