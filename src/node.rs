@@ -166,7 +166,7 @@ impl GlusterdNode {
                         containers: vec![Container {
                             name: "glusterd".to_string(),
                             // TODO: allow external image and tag for renovate
-                            image: Some("ghcr.io/koskev/glusterd-image:2023.12.20".to_string()),
+                            image: Some("ghcr.io/koskev/glusterd-image:2023.12.24".to_string()),
                             args: Some(vec!["-L".to_string(), "DEBUG".to_string()]),
 
                             volume_mounts: Some(volume_mounts),
