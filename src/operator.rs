@@ -259,7 +259,7 @@ impl GlusterdOperator {
                     Some(options) => {
                         for option in options.iter() {
                             let mut option_vec = option.split(" ").collect();
-                            let mut command = vec!["gluster", "volume", &volume_name, "set"];
+                            let mut command = vec!["gluster", "volume", "set", &volume_name];
                             // XXX: This allows a user which can add a storage to run any command in the node
                             command.append(&mut option_vec);
                             node.exec_pod(command, &pod_api).await;
