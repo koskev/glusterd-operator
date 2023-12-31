@@ -175,6 +175,16 @@ impl GlusterdOperator {
                     .await;
             }
         }
+
+        // Now all nodes are in cluster -> No split possible anymore
+        // Probe from every node to every node to add all proper dns names
+        for node in &self.nodes {
+            for other_node in &self.nodes {
+                if node.get_name() != other_node.get_name() {
+                    node.probe(&other_node.get_name(), &pod_api).await;
+                }
+            }
+        }
     }
 
     async fn create_volumes(&self, pod_api: &Api<Pod>) {
