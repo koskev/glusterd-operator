@@ -3,7 +3,7 @@ use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
-    api::Api,
+    api::{Api, ListParams},
     runtime::{controller::Action, watcher, Controller},
     Client, CustomResourceExt, Resource, ResourceExt,
 };
@@ -99,6 +99,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let context = Context::new().await;
     let glusterd_storages: Api<GlusterdStorage> = Api::all(context.client.clone());
+    // Create initial state
+    let storage_list = glusterd_storages.list(&ListParams::default()).await;
+    match storage_list {
+        Ok(storage_list) => {
+            for existing_storage in storage_list.iter() {
+                let namespace = existing_storage.get_namespace();
+                let operator = context.get_operator(&namespace).await;
+                operator.write().await.add_storage(existing_storage.clone());
+            }
+        }
+        Err(_e) => (),
+    }
 
     Controller::new(glusterd_storages.clone(), Default::default())
         .owns(
