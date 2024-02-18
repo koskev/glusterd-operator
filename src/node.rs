@@ -241,12 +241,7 @@ impl GlusterdNode {
         while !connected {
             let peers = self.get_peer_list(pod_api).await;
             for peer in peers {
-                if peer
-                    .hostnames
-                    .iter()
-                    .find(|h| h.contains(&service_name))
-                    .is_some()
-                {
+                if peer.hostnames.iter().any(|h| h.contains(&service_name)) {
                     connected = peer.state == 3;
                     break;
                 }
