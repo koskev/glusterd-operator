@@ -112,7 +112,7 @@ impl GlusterdNode {
                         let (volume, volume_mount) = create_volume(
                             &storage.get_name(),
                             &storage.get_brick_path(),
-                            &host_path,
+                            host_path,
                         );
                         Some((volume, volume_mount))
                     }
@@ -230,7 +230,7 @@ impl GlusterdNode {
         let service_name = format!("glusterd-service-{}.{}", peer, self.namespace);
         info!("Executing for with service {}", service_name);
         let command = vec!["gluster", "peer", "probe", &service_name];
-        let (_stdout, stderr) = self.exec_pod(command, &pod_api).await;
+        let (_stdout, stderr) = self.exec_pod(command, pod_api).await;
         if stderr.is_some() {
             error!("Failed to probe {}: {}", service_name, stderr.unwrap());
             return;
@@ -264,11 +264,11 @@ impl GlusterdNode {
 
                 for block in blocks {
                     let mut peer = GlusterPeer::new();
-                    let lines: Vec<&str> = block.split("\n").collect();
+                    let lines: Vec<&str> = block.split('\n').collect();
 
                     for line in lines {
                         info!("{}", line);
-                        let key_val = line.split_once("=");
+                        let key_val = line.split_once('=');
                         match key_val {
                             Some((key, val)) => {
                                 if key == "uuid" {
@@ -291,7 +291,7 @@ impl GlusterdNode {
     }
 
     pub async fn get_peer_num(&self, pod_api: &Api<Pod>) -> usize {
-        self.get_peer_list(&pod_api).await.len()
+        self.get_peer_list(pod_api).await.len()
     }
 
     pub async fn kill_pod(&self, pod_api: &Api<Pod>) {
@@ -304,13 +304,13 @@ impl GlusterdNode {
         let pattern = r"(?m)^hostname1=[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}\.";
         let regex = Regex::new(pattern).unwrap();
 
-        let (stdout, _err) = self.exec_pod(command.clone(), &pod_api).await;
+        let (stdout, _err) = self.exec_pod(command.clone(), pod_api).await;
         match stdout {
             Some(output) => {
                 println!("Checking for {} in {}", pattern, output);
                 return regex.find(&output).is_some();
             }
-            None => return false,
+            None => false,
         }
     }
 
@@ -327,11 +327,11 @@ impl GlusterdNode {
                 // XXX: Assumes we only have one pod
                 let pod = pod_list.items.first();
                 match pod {
-                    Some(pod) => return pod.metadata.name.clone(),
-                    None => return None,
+                    Some(pod) => pod.metadata.name.clone(),
+                    None => None,
                 }
             }
-            Err(_e) => return None,
+            Err(_e) => None,
         }
     }
 
@@ -424,11 +424,11 @@ impl ExecPod for GlusterdNode {
                     .collect::<Vec<_>>()
                     .await
                     .join("");
-                if stdout.len() > 0 {
+                if !stdout.is_empty() {
                     info!("Stdout: {}", stdout);
                     retval.0 = Some(stdout);
                 }
-                if stderr.len() > 0 {
+                if !stderr.is_empty() {
                     error!("Stderr: {}", stderr);
                     retval.1 = Some(stderr);
                 }
