@@ -253,31 +253,28 @@ impl GlusterdNode {
         let cmd = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
         let (stdout, _stderr) = self.exec_pod(cmd, pod_api).await;
         let mut peer_list: Vec<GlusterPeer> = vec![];
-        match stdout {
-            Some(out) => {
-                let blocks: Vec<&str> = out.split("\n\n").collect();
+        if let Some(out) = stdout {
+            let blocks: Vec<&str> = out.split("\n\n").collect();
 
-                for block in blocks {
-                    let mut peer = GlusterPeer::new();
-                    let lines: Vec<&str> = block.split('\n').collect();
+            for block in blocks {
+                let mut peer = GlusterPeer::new();
+                let lines: Vec<&str> = block.split('\n').collect();
 
-                    for line in lines {
-                        info!("{}", line);
-                        let key_val = line.split_once('=');
-                        if let Some((key, val)) = key_val {
-                            if key == "uuid" {
-                                peer.uuid = val.to_string();
-                            } else if key == "state" {
-                                peer.state = val.parse().unwrap();
-                            } else if key.contains("hostname") {
-                                peer.hostnames.push(val.to_string());
-                            }
+                for line in lines {
+                    info!("{}", line);
+                    let key_val = line.split_once('=');
+                    if let Some((key, val)) = key_val {
+                        if key == "uuid" {
+                            peer.uuid = val.to_string();
+                        } else if key == "state" {
+                            peer.state = val.parse().unwrap();
+                        } else if key.contains("hostname") {
+                            peer.hostnames.push(val.to_string());
                         }
                     }
-                    peer_list.push(peer);
                 }
+                peer_list.push(peer);
             }
-            None => (),
         }
         peer_list
     }
