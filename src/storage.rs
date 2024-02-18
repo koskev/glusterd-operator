@@ -1,5 +1,5 @@
 use kube::{core::ObjectMeta, ResourceExt};
-use std::{collections::HashSet, default};
+use std::collections::HashSet;
 
 use kube::CustomResource;
 use schemars::JsonSchema;
@@ -49,7 +49,7 @@ impl GlusterdStorage {
     }
 
     pub fn get_name(&self) -> String {
-        format!("{}", self.metadata.name.clone().unwrap())
+        self.metadata.name.clone().unwrap()
     }
 
     pub fn get_brick_path(&self) -> String {
@@ -57,7 +57,7 @@ impl GlusterdStorage {
     }
 
     fn get_id(&self, node_name: &str) -> String {
-        format!("{}", node_name)
+        node_name.to_string()
     }
 
     pub fn is_valid(&self) -> bool {
