@@ -187,7 +187,7 @@ impl GlusterdOperator {
     async fn create_volumes(&self, pod_api: &Api<Pod>) {
         // Create dirs on all nodes as gluster won't do that
         for node in &self.nodes {
-            for (_name, storage) in &node.storages {
+            for storage in node.storages.values() {
                 let brick_path = storage.get_brick_path();
                 let mkdir_cmd = vec!["mkdir", "-p", &brick_path];
                 node.exec_pod(mkdir_cmd, pod_api).await;
