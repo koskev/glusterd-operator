@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use k8s_openapi::api::apps::v1::{DaemonSet, DaemonSetSpec, StatefulSet};
 use k8s_openapi::api::core::v1::{
-    Capabilities, Container, HostPathVolumeSource, Pod, PodSecurityContext, PodSpec,
-    PodTemplateSpec, SecurityContext, Service, Volume, VolumeMount,
+    Capabilities, Container, HostPathVolumeSource, Pod, PodSpec, PodTemplateSpec, SecurityContext,
+    Service, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
-use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
+use kube::api::{Patch, PatchParams};
 use kube::core::ObjectMeta;
 use kube::{Api, Client};
 
-use crate::node::{ExecPod, GlusterPeer, GlusterdNode};
+use crate::node::{ExecPod, GlusterdNode};
 use crate::storage::{GlusterdStorage, GlusterdStorageTypeSpec};
 
 use log::{error, info, warn};
