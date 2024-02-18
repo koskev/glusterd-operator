@@ -264,17 +264,14 @@ impl GlusterdNode {
                     for line in lines {
                         info!("{}", line);
                         let key_val = line.split_once('=');
-                        match key_val {
-                            Some((key, val)) => {
-                                if key == "uuid" {
-                                    peer.uuid = val.to_string();
-                                } else if key == "state" {
-                                    peer.state = val.parse().unwrap();
-                                } else if key.contains("hostname") {
-                                    peer.hostnames.push(val.to_string());
-                                }
+                        if let Some((key, val)) = key_val {
+                            if key == "uuid" {
+                                peer.uuid = val.to_string();
+                            } else if key == "state" {
+                                peer.state = val.parse().unwrap();
+                            } else if key.contains("hostname") {
+                                peer.hostnames.push(val.to_string());
                             }
-                            None => (),
                         }
                     }
                     peer_list.push(peer);
