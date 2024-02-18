@@ -37,11 +37,10 @@ impl Context {
 
     async fn get_operator(&self, namespace: &str) -> Arc<RwLock<GlusterdOperator>> {
         let namespace = namespace.to_string();
-        let operator;
         let mut operator_lock = self.operators.write().await;
         let operator_opt = operator_lock.get(&namespace);
-        match operator_opt {
-            Some(o) => operator = o,
+        let operator = match operator_opt {
+            Some(o) => o,
             None => {
                 operator_lock.insert(
                     namespace.clone(),
@@ -51,9 +50,9 @@ impl Context {
                     ))),
                 );
 
-                operator = operator_lock.get(&namespace).unwrap();
+                operator_lock.get(&namespace).unwrap()
             }
-        }
+        };
         operator.clone()
     }
 }
