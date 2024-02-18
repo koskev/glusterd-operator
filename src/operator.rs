@@ -169,10 +169,7 @@ impl GlusterdOperator {
         }
         for node in &self.nodes {
             if node.get_name() != cluster_node.unwrap().get_name() {
-                cluster_node
-                    .unwrap()
-                    .probe(&node.get_name(), &pod_api)
-                    .await;
+                cluster_node.unwrap().probe(&node.get_name(), pod_api).await;
             }
         }
 
@@ -181,7 +178,7 @@ impl GlusterdOperator {
         for node in &self.nodes {
             for other_node in &self.nodes {
                 if node.get_name() != other_node.get_name() {
-                    node.probe(&other_node.get_name(), &pod_api).await;
+                    node.probe(&other_node.get_name(), pod_api).await;
                 }
             }
         }
@@ -199,7 +196,7 @@ impl GlusterdOperator {
         let mut existing_volumes = HashSet::new();
         for node in &self.nodes {
             let command = vec!["gluster", "volume", "list"];
-            let (output, _) = node.exec_pod(command, &pod_api).await;
+            let (output, _) = node.exec_pod(command, pod_api).await;
             if let Some(output) = output {
                 output.split("\n").for_each(|v| {
                     existing_volumes.insert(v.to_string());
@@ -246,10 +243,10 @@ impl GlusterdOperator {
                         bricks.iter().map(|brick| brick.as_str()).collect();
                     command.append(&mut brick_ref);
                     command.push("force");
-                    node.exec_pod(command, &pod_api).await;
+                    node.exec_pod(command, pod_api).await;
 
                     let command = vec!["gluster", "volume", "start", &volume_name];
-                    node.exec_pod(command, &pod_api).await;
+                    node.exec_pod(command, pod_api).await;
 
                     // Add to existing volumes
                     existing_volumes.insert(name.clone());
@@ -262,7 +259,7 @@ impl GlusterdOperator {
                             let mut command = vec!["gluster", "volume", "set", &volume_name];
                             // XXX: This allows a user which can add a storage to run any command in the node
                             command.append(&mut option_vec);
-                            node.exec_pod(command, &pod_api).await;
+                            node.exec_pod(command, pod_api).await;
                         }
                     }
                     None => (),
