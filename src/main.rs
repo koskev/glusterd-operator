@@ -1,5 +1,6 @@
 use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 
+use clap::Parser;
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
@@ -62,6 +63,14 @@ pub enum MyError {}
 
 pub type Result<T, E = MyError> = std::result::Result<T, E>;
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// List crd
+    #[arg(short, long)]
+    crd: bool,
+}
+
 async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Action> {
     info!("reconcile request: {}", obj.name_any());
     if !obj.is_valid() {
@@ -90,12 +99,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ColorChoice::Auto,
     )
     .unwrap();
+    let args = Cli::parse();
 
-    info!("kind = {}", GlusterdStorage::kind(&())); // impl kube::Resource
-    info!(
-        "crd: {}",
-        serde_yaml::to_string(&GlusterdStorage::crd()).unwrap()
-    ); // crd yaml
+    if args.crd {
+        println!(
+            "{}",
+            serde_yaml::to_string(&GlusterdStorage::crd()).unwrap()
+        ); // crd yaml
+        return Ok(());
+    }
 
     let context = Context::new().await;
     let glusterd_storages: Api<GlusterdStorage> = Api::all(context.client.clone());
