@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     Controller::new(glusterd_storages.clone(), Default::default())
         .owns(
-            Api::<Deployment>::all(context.client.clone()),
+            Api::<Deployment>::namespaced(context.client.clone(), &args.namespace),
             watcher::Config::default(),
         )
         .run(reconcile, error_policy, Arc::new(context))
