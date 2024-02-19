@@ -90,7 +90,7 @@ impl GlusterdNode {
     }
 
     pub fn add_storage(&mut self, storage: Arc<GlusterdStorage>) {
-        info!("Adding storage {:?}", storage);
+        info!("Adding storage {:?}", storage.get_name());
         self.storages.insert(storage.get_name(), storage);
     }
 
@@ -284,8 +284,13 @@ impl GlusterdNode {
     }
 
     pub async fn kill_pod(&self, pod_api: &Api<Pod>) {
-        let pod_name = self.get_pod_name(pod_api).await.unwrap();
-        let _ = pod_api.delete(&pod_name, &DeleteParams::default()).await;
+        let pod_name = self.get_pod_name(pod_api).await;
+        match pod_name {
+            Some(name) => {
+                let _ = pod_api.delete(&name, &DeleteParams::default()).await;
+            }
+            None => error!("Failed to kill pod with name {}", self.get_name()),
+        }
     }
 
     pub async fn has_wrong_peer(&self, pod_api: &Api<Pod>) -> bool {
@@ -389,7 +394,17 @@ impl ExecPod for GlusterdNode {
         pod_api: &Api<Pod>,
     ) -> (Option<String>, Option<String>) {
         let mut retval = (None, None);
-        let pod_name = self.get_pod_name(pod_api).await.unwrap();
+        let pod_name = match self.get_pod_name(pod_api).await {
+            Some(name) => name,
+            None => {
+                error!(
+                    "Failed to find pod with label {} while trying to run \"{:?}\"",
+                    self.get_name(),
+                    command
+                );
+                return (None, None);
+            }
+        };
 
         info!("Executing \"{:?}\" in {}", command, pod_name);
 

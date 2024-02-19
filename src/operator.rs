@@ -342,6 +342,7 @@ impl GlusterdOperator {
         // instance
         for node in &self.nodes {
             if node.has_wrong_peer(&pod_api).await {
+                warn!("Need to kill pod {}", node.get_name());
                 node.kill_pod(&pod_api).await;
                 // Wait for pod to go online again
                 // Once it is online we can kill the next node
