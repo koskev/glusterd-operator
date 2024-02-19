@@ -68,6 +68,9 @@ struct Cli {
     /// List crd
     #[arg(short, long)]
     crd: bool,
+
+    #[arg(short, long, default_value = "storage")]
+    namespace: String,
 }
 
 async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Action> {
@@ -109,7 +112,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let context = Context::new().await;
-    let glusterd_storages: Api<GlusterdStorage> = Api::all(context.client.clone());
+    let glusterd_storages: Api<GlusterdStorage> =
+        Api::namespaced(context.client.clone(), &args.namespace);
     // Create initial state
     let storage_list = glusterd_storages.list(&ListParams::default()).await;
     match storage_list {
