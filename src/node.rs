@@ -16,7 +16,7 @@ use kube::{
     runtime::{conditions, wait::await_condition},
     Api,
 };
-use log::{error, info};
+use log::{error, info, warn};
 use regex::Regex;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -325,7 +325,10 @@ impl GlusterdNode {
                     None => None,
                 }
             }
-            Err(_e) => None,
+            Err(e) => {
+                warn!("Failed to get pod with label \"{}\": {}", label, e);
+                None
+            }
         }
     }
 
