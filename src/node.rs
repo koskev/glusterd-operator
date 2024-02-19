@@ -394,16 +394,13 @@ impl ExecPod for GlusterdNode {
         pod_api: &Api<Pod>,
     ) -> (Option<String>, Option<String>) {
         let mut retval = (None, None);
-        let pod_name = match self.get_pod_name(pod_api).await {
-            Some(name) => name,
-            None => {
-                error!(
-                    "Failed to find pod with label {} while trying to run \"{:?}\"",
-                    self.get_name(),
-                    command
-                );
-                return (None, None);
-            }
+        let Some(pod_name) = self.get_pod_name(pod_api).await else {
+            error!(
+                "Failed to find pod with label {} while trying to run \"{:?}\"",
+                self.get_name(),
+                command
+            );
+            return (None, None);
         };
 
         info!("Executing \"{:?}\" in {}", command, pod_name);
