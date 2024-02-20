@@ -387,10 +387,16 @@ impl GlusterdNode {
             .delete(&svc.metadata.get_name(), &DeleteParams::default())
             .await;
         info!("Deployed service {:?}", svc.metadata.get_name());
-        let _s = service_api
-            .create(&PostParams::default(), &svc)
-            .await
-            .unwrap();
+        let res = service_api.create(&PostParams::default(), &svc).await;
+
+        match res {
+            Ok(_) => (),
+            Err(e) => error!(
+                "Failed to patch service {} with error {}",
+                svc.metadata.get_name(),
+                e
+            ),
+        }
     }
 }
 
