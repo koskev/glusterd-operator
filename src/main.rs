@@ -42,21 +42,17 @@ impl Context {
         let mut operator_lock = self.operators.write().await;
         let operator_opt = operator_lock.get(&namespace);
         let operator = match operator_opt {
-            Some(o) => o,
+            Some(o) => o.clone(),
             None => {
-                operator_lock.insert(
-                    namespace.clone(),
-                    Arc::new(RwLock::new(GlusterdOperator::new(
-                        self.client.clone(),
-                        &namespace,
-                    ))),
-                );
-                // Safe unwrap
-                #[allow(clippy::unwrap_used)]
-                operator_lock.get(&namespace).unwrap()
+                let glusterd_operator = Arc::new(RwLock::new(GlusterdOperator::new(
+                    self.client.clone(),
+                    &namespace,
+                )));
+                operator_lock.insert(namespace.clone(), glusterd_operator.clone());
+                glusterd_operator
             }
         };
-        operator.clone()
+        operator
     }
 }
 
