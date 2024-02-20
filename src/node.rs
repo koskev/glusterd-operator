@@ -270,7 +270,14 @@ impl GlusterdNode {
                         if key == "uuid" {
                             peer.uuid = val.to_string();
                         } else if key == "state" {
-                            peer.state = val.parse().unwrap();
+                            let parsed = val.parse();
+                            match parsed {
+                                Ok(val) => peer.state = val,
+                                Err(e) => {
+                                    // XXX: Broken line. Do we skip the whole block?
+                                    error!("Failed to parse glusterd peer file state value \"{}\". Error: {}", val, e);
+                                }
+                            }
                         } else if key.contains("hostname") {
                             peer.hostnames.push(val.to_string());
                         }
