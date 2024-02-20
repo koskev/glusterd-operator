@@ -437,27 +437,31 @@ impl ExecPod for GlusterdNode {
 
         match res {
             Ok(mut p) => {
-                let stdout = tokio_util::io::ReaderStream::new(p.stdout().unwrap())
-                    .filter_map(|r| async {
-                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
-                    })
-                    .collect::<Vec<_>>()
-                    .await
-                    .join("");
-                let stderr = tokio_util::io::ReaderStream::new(p.stderr().unwrap())
-                    .filter_map(|r| async {
-                        r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
-                    })
-                    .collect::<Vec<_>>()
-                    .await
-                    .join("");
-                if !stdout.is_empty() {
-                    info!("Stdout: {}", stdout);
-                    retval.0 = Some(stdout);
+                if let Some(stdout_stream) = p.stdout() {
+                    let stdout = tokio_util::io::ReaderStream::new(stdout_stream)
+                        .filter_map(|r| async {
+                            r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                        })
+                        .collect::<Vec<_>>()
+                        .await
+                        .join("");
+                    if !stdout.is_empty() {
+                        info!("Stdout: {}", stdout);
+                        retval.0 = Some(stdout);
+                    }
                 }
-                if !stderr.is_empty() {
-                    error!("Stderr: {}", stderr);
-                    retval.1 = Some(stderr);
+                if let Some(stderr_stream) = p.stderr() {
+                    let stderr = tokio_util::io::ReaderStream::new(stderr_stream)
+                        .filter_map(|r| async {
+                            r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok())
+                        })
+                        .collect::<Vec<_>>()
+                        .await
+                        .join("");
+                    if !stderr.is_empty() {
+                        error!("Stderr: {}", stderr);
+                        retval.1 = Some(stderr);
+                    }
                 }
                 let _ = p.join().await;
             }
