@@ -49,7 +49,7 @@ impl GlusterdOperator {
                 storage.spec.nodes.first().unwrap().name.clone(),
                 storage.get_namespace()
             );
-            let volume_name = storage.metadata.name.clone().unwrap();
+            let volume_name = storage.get_name();
             let mount_point = format!("/mnt/glusterfs/{}/{}", self.namespace, volume_name);
             let name = format!("glusterfs-mount-{}", storage.get_name());
             let label = BTreeMap::from([("app".to_string(), name.clone())]);
