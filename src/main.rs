@@ -6,7 +6,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
     api::{Api, ListParams},
     runtime::{controller::Action, watcher, Controller},
-    Client, CustomResourceExt, Resource, ResourceExt,
+    Client, CustomResourceExt, ResourceExt,
 };
 
 use log::LevelFilter;
@@ -41,18 +41,17 @@ impl Context {
         let namespace = namespace.to_string();
         let mut operator_lock = self.operators.write().await;
         let operator_opt = operator_lock.get(&namespace);
-        let operator = match operator_opt {
+        match operator_opt {
             Some(o) => o.clone(),
             None => {
                 let glusterd_operator = Arc::new(RwLock::new(GlusterdOperator::new(
                     self.client.clone(),
                     &namespace,
                 )));
-                operator_lock.insert(namespace.clone(), glusterd_operator.clone());
+                operator_lock.insert(namespace, glusterd_operator.clone());
                 glusterd_operator
             }
-        };
-        operator
+        }
     }
 }
 
