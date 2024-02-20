@@ -167,9 +167,11 @@ impl GlusterdOperator {
                 break;
             }
         }
+        #[allow(clippy::unwrap_used)]
+        let cluster_node = cluster_node.unwrap();
         for node in &self.nodes {
-            if node.get_name() != cluster_node.unwrap().get_name() {
-                cluster_node.unwrap().probe(&node.get_name(), pod_api).await;
+            if node.get_name() != cluster_node.get_name() {
+                cluster_node.probe(&node.get_name(), pod_api).await;
             }
         }
 

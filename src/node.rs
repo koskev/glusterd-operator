@@ -296,6 +296,8 @@ impl GlusterdNode {
     pub async fn has_wrong_peer(&self, pod_api: &Api<Pod>) -> bool {
         let command = vec!["bash", "-c", "tail -n +1 /var/lib/glusterd/peers/*"];
         let pattern = r"(?m)^hostname1=[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}\.";
+        // Safe as long as the regex stays valid. A compile time check would be nice...
+        #[allow(clippy::unwrap_used)]
         let regex = Regex::new(pattern).unwrap();
 
         let (stdout, _err) = self.exec_pod(command.clone(), pod_api).await;
@@ -335,13 +337,17 @@ impl GlusterdNode {
     pub async fn wait_for_pod(&self, pod_api: &Api<Pod>) {
         while self.get_pod_name(pod_api).await.is_none() {
             tokio::time::sleep(Duration::from_millis(200)).await;
+            // FIXME: add timeout
         }
+        // Safe unwrap
+        #[allow(clippy::unwrap_used)]
         let pod_name = self.get_pod_name(pod_api).await.unwrap();
         info!("Awaiting {}", pod_name);
-        await_condition(pod_api.clone(), &pod_name, conditions::is_pod_running())
-            .await
-            .unwrap();
-        info!("Done awaiting {}", pod_name);
+        let res = await_condition(pod_api.clone(), &pod_name, conditions::is_pod_running()).await;
+        match res {
+            Ok(_) => info!("Done awaiting {}", pod_name),
+            Err(e) => error!("Failed to wait for {}: {}", pod_name, e),
+        }
     }
 
     pub async fn patch_node(

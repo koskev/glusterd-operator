@@ -49,7 +49,10 @@ impl GlusterdStorage {
     }
 
     pub fn get_name(&self) -> String {
-        self.metadata.name.clone().unwrap()
+        self.metadata
+            .name
+            .clone()
+            .unwrap_or("unknown_name".to_string())
     }
 
     pub fn get_brick_path(&self) -> String {

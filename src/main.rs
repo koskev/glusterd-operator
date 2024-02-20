@@ -30,6 +30,8 @@ struct Context {
 impl Context {
     async fn new() -> Self {
         Self {
+            // If we fail here something is really wrong :)
+            #[allow(clippy::unwrap_used)]
             client: Client::try_default().await.unwrap(),
             operators: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -49,7 +51,8 @@ impl Context {
                         &namespace,
                     ))),
                 );
-
+                // Safe unwrap
+                #[allow(clippy::unwrap_used)]
                 operator_lock.get(&namespace).unwrap()
             }
         };
@@ -100,13 +103,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         TerminalMode::Stdout,
         ColorChoice::Auto,
     )
-    .unwrap();
+    .expect("Failed to init termlogger. Exiting!");
     let args = Cli::parse();
 
     if args.crd {
         println!(
             "{}",
-            serde_yaml::to_string(&GlusterdStorage::crd()).unwrap()
+            serde_yaml::to_string(&GlusterdStorage::crd())
+                .unwrap_or("Failed to generate crd!".to_string())
         ); // crd yaml
         return Ok(());
     }
