@@ -45,9 +45,13 @@ impl GlusterdOperator {
     fn get_client_mount_daemonset(&self) -> Vec<DaemonSet> {
         let mut daemonsets = vec![];
         for (_, storage) in self.get_storages() {
+            let Some(any_node) = storage.spec.nodes.first() else {
+                error!("Storage {} does not contain any nodes!", storage.get_name());
+                continue;
+            };
             let server = format!(
                 "glusterd-service-{}.{}",
-                storage.spec.nodes.first().unwrap().name.clone(),
+                any_node.name,
                 storage.get_namespace()
             );
             let volume_name = storage.get_name();
