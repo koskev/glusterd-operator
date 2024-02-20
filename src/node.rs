@@ -235,7 +235,11 @@ impl GlusterdNode {
         let command = vec!["gluster", "peer", "probe", &service_name];
         let (_stdout, stderr) = self.exec_pod(command, pod_api).await;
         if stderr.is_some() {
-            error!("Failed to probe {}: {}", service_name, stderr.unwrap());
+            error!(
+                "Failed to probe {}: {}",
+                service_name,
+                stderr.unwrap_or_default()
+            );
             return;
         }
         let mut connected = false;
