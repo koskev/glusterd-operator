@@ -13,6 +13,7 @@ use kube::{Api, Client};
 
 use crate::node::{ExecPod, GlusterdNode};
 use crate::storage::{GlusterdStorage, GlusterdStorageTypeSpec};
+use crate::utils::MetaName;
 
 use log::{error, info, warn};
 
@@ -306,7 +307,7 @@ impl GlusterdOperator {
             let patch = Patch::Apply(set.clone());
             let patch_result = daemonset_api
                 .patch(
-                    &set.metadata.name.clone().unwrap(),
+                    &set.metadata.get_name(),
                     &PatchParams::apply("glusterd-operator"),
                     &patch,
                 )

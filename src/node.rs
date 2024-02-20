@@ -24,7 +24,10 @@ use std::{
     time::Duration,
 };
 
-use crate::{storage::GlusterdStorage, utils::get_label};
+use crate::{
+    storage::GlusterdStorage,
+    utils::{get_label, MetaName},
+};
 
 #[cfg(test)]
 use mockall::{automock, mock, predicate::*};
@@ -360,7 +363,7 @@ impl GlusterdNode {
         let patch = Patch::Apply(stateful_set.clone());
         let patch_result = statefulset_api
             .patch(
-                &stateful_set.metadata.name.clone().unwrap(),
+                &stateful_set.metadata.get_name(),
                 &PatchParams::apply("glusterd-operator"),
                 &patch,
             )
@@ -374,19 +377,16 @@ impl GlusterdNode {
                 return;
             }
         }
-        info!("Deployed {:?}", stateful_set.metadata.name.unwrap());
+        info!("Deployed {:?}", stateful_set.metadata.get_name());
         // --- DEPLOYMENT END ---
 
         // Start service for each node
         let svc = self.get_service(&self.namespace);
         // TODO: patch to prevent connection loss
         let _ = service_api
-            .delete(
-                &svc.metadata.name.clone().unwrap(),
-                &DeleteParams::default(),
-            )
+            .delete(&svc.metadata.get_name(), &DeleteParams::default())
             .await;
-        info!("Deployed service {:?}", svc.metadata.name.clone().unwrap());
+        info!("Deployed service {:?}", svc.metadata.get_name());
         let _s = service_api
             .create(&PostParams::default(), &svc)
             .await
