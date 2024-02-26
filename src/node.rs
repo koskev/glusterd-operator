@@ -92,9 +92,9 @@ impl GlusterdNode {
         self.name.clone()
     }
 
-    pub fn add_storage(&mut self, storage: Arc<GlusterdStorage>) {
+    pub fn add_storage(&mut self, storage: Arc<GlusterdStorage>) -> Option<Arc<GlusterdStorage>> {
         info!("Adding storage {:?}", storage.get_name());
-        self.storages.insert(storage.get_name(), storage);
+        self.storages.insert(storage.get_name(), storage)
     }
 
     fn get_brick_mounts(&self) -> Vec<(Volume, VolumeMount)> {

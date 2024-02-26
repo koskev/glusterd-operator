@@ -5,13 +5,13 @@ use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)]
 pub struct GlusterdStorageNodeSpec {
     pub name: String,
     pub path: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq)]
 pub enum GlusterdStorageTypeSpec {
     Disperse,
     Replica,
@@ -20,7 +20,7 @@ pub enum GlusterdStorageTypeSpec {
     Distribute,
 }
 
-#[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema, Default)]
+#[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq)]
 #[kube(
     group = "glusterd-operator.storage",
     version = "v1",
@@ -67,5 +67,11 @@ impl GlusterdStorage {
         let names: HashSet<String> = self.spec.nodes.iter().map(|n| n.name.clone()).collect();
 
         self.metadata.name.is_some() && names.len() == self.spec.nodes.len()
+    }
+}
+
+impl PartialEq for GlusterdStorage {
+    fn eq(&self, other: &Self) -> bool {
+        self.metadata == other.metadata && self.spec == other.spec
     }
 }

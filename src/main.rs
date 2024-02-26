@@ -80,8 +80,12 @@ async fn reconcile(obj: Arc<GlusterdStorage>, ctx: Arc<Context>) -> Result<Actio
     let namespace = obj.get_namespace();
     let operator = ctx.get_operator(&namespace).await;
 
-    operator.write().await.add_storage(obj.as_ref().clone());
-    operator.write().await.update().await;
+    if operator.write().await.add_storage(obj.as_ref().clone()) {
+        info!("Got changed storage. Updating...");
+        operator.write().await.update().await;
+    } else {
+        info!("Storage unchanged");
+    }
 
     Ok(Action::requeue(Duration::from_secs(3600)))
 }

@@ -138,23 +138,34 @@ impl GlusterdOperator {
         daemonsets
     }
 
-    pub fn add_storage(&mut self, storage: GlusterdStorage) {
+    pub fn add_storage(&mut self, storage: GlusterdStorage) -> bool {
         let storage_rc = Arc::new(storage);
+        let mut changed = false;
         for node_spec in storage_rc.spec.nodes.iter() {
             let node_opt = self.nodes.iter_mut().find(|n| n.name == node_spec.name);
-            match node_opt {
+            let changed_local = match node_opt {
                 Some(node) => {
                     // We already have a node
-                    node.add_storage(storage_rc.clone());
+                    let old_val = node.add_storage(storage_rc.clone());
+                    match old_val {
+                        Some(ov) => *storage_rc != *ov,
+                        None => false,
+                    }
                 }
                 None => {
                     // First time seeing this node
                     let mut node = GlusterdNode::new(&node_spec.name, &self.namespace);
                     node.add_storage(storage_rc.clone());
                     self.nodes.push(node);
+                    // On new node there is always a change
+                    true
                 }
+            };
+            if changed_local {
+                changed = true;
             }
         }
+        changed
     }
 
     // Take first node and probe it with every other node
