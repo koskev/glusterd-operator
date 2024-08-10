@@ -25,16 +25,17 @@ spec:
                   properties:
                     name:
                       type: string
-                    path:
+                    storagePath:
                       type: string
                   required:
                   - name
-                  - path
+                  - storagePath
                   type: object
                 type: array
               options:
                 items:
                   type: string
+                nullable: true
                 type: array
               type:
                 enum:
@@ -45,7 +46,6 @@ spec:
                 type: string
             required:
             - nodes
-            - options
             - type
             type: object
         required:
@@ -55,3 +55,4 @@ spec:
     served: true
     storage: true
     subresources: {}
+
