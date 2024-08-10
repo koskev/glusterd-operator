@@ -109,7 +109,7 @@ impl GlusterdNode {
                 let my_spec = storage.spec.nodes.iter().find(|n| self.name == n.name);
                 match my_spec {
                     Some(my_spec) => {
-                        let host_path = &my_spec.path;
+                        let host_path = &my_spec.storage_path;
                         // XXX: With this we won't support two bricks of the same storage on the same
                         // node
                         let (volume, volume_mount) = create_volume(

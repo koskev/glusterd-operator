@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)]
 pub struct GlusterdStorageNodeSpec {
     pub name: String,
-    pub path: String,
+    #[serde(rename = "storagePath")]
+    pub storage_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq)]
