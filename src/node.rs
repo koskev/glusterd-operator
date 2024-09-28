@@ -170,7 +170,10 @@ impl GlusterdNode {
                             name: "glusterd".to_string(),
                             // TODO: allow external image and tag for renovate
                             image: Some("ghcr.io/koskev/glusterd-image:2023.12.24".to_string()),
-                            args: Some(vec!["-L".to_string(), "DEBUG".to_string()]),
+                            command: Some(vec!["/bin/bash".into()]),
+                            // XXX: Sleep 10 seconds to make sure DNS works properly. Otherwise
+                            // glusterd might fail (don't know the exact reason yet)
+                            args: Some(vec!["-c".into(), "sleep 10; /entrypoint.sh".into()]),
 
                             volume_mounts: Some(volume_mounts),
                             resources: Some(ResourceRequirements {
